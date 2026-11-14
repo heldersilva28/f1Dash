@@ -1,0 +1,55 @@
+html, body { margin: 0; height: 100%; background: #06080A; overflow: hidden; }
+body { font-family: 'Barlow Semi Condensed', system-ui, sans-serif; color: #F2F4F7; font-variant-numeric: tabular-nums; }
+#palco { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+#ecra { width: 1920px; height: 1080px; flex: none; transform-origin: center center; box-sizing: border-box; padding: 24px;
+  display: flex; flex-direction: column; gap: 16px; background: #0A0C0F; overflow: hidden; }
+button { font-family: inherit; }
+
+.p { background: #12161B; border: 1px solid #232B35; border-radius: 10px; box-sizing: border-box; }
+.l { font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #98A2B3; }
+.m { color: #98A2B3; }
+.col { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; }
+.sb { justify-content: space-between; }
+.g { display: grid; }
+.cx { background: #0E1216; border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; }
+
+/* cabeçalho */
+.cab { height: 64px; display: flex; align-items: center; gap: 28px; flex: none; }
+.selo { color: #0A0C0F; font-weight: 700; font-size: 18px; letter-spacing: .16em; padding: 8px 14px; border-radius: 6px; text-transform: uppercase; }
+.pilula { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: .12em; padding: 8px 14px; border-radius: 6px; text-transform: uppercase; }
+.pilula i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.prev { display: flex; flex-direction: column; align-items: center; background: #12161B; border: 1px solid #232B35; border-radius: 6px; padding: 4px 10px; min-width: 72px; }
+
+/* tabela de posições */
+.tab { display: grid; gap: 8px; align-items: center; padding: 0 8px; border-radius: 6px; }
+.barra-eq { width: 4px; height: 20px; border-radius: 2px; }
+.pneu { border-radius: 50%; border: 3px solid; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.etq { font-size: 12px; font-weight: 700; color: #0A0C0F; padding: 1px 5px; border-radius: 3px; }
+.tu { font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 3px; color: #0A0C0F; letter-spacing: .06em; }
+.modo { font-size: 14px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer; border: 1px solid #2A333E; background: transparent; color: #98A2B3; }
+.modo.on { background: #F2F4F7; color: #0A0C0F; border-color: #F2F4F7; }
+
+.barra { height: 6px; background: #232B35; border-radius: 3px; overflow: hidden; }
+.barra > div { height: 100%; border-radius: 3px; }
+
+/* espera */
+.espera { margin: auto; max-width: 900px; text-align: left; }
+.espera h1 { font-size: 48px; margin: 0 0 8px; }
+.espera ol { font-size: 22px; line-height: 1.6; color: #C9D1DB; }
+.espera code { background: #12161B; border: 1px solid #232B35; border-radius: 4px; padding: 1px 6px; color: #F2F4F7; }
+
+/* definições */
+#abrir-def { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 22px; border: 1px solid #232B35;
+  background: #12161BCC; color: #98A2B3; cursor: pointer; opacity: .25; transition: opacity .2s; display: flex; align-items: center; justify-content: center; }
+#abrir-def:hover, #abrir-def:focus { opacity: 1; }
+#definicoes { position: fixed; inset: 0; background: #000A; display: flex; align-items: center; justify-content: center; z-index: 5; }
+#definicoes[hidden] { display: none; }
+.def-caixa { background: #12161B; border: 1px solid #2A333E; border-radius: 12px; padding: 24px; width: 460px; display: flex; flex-direction: column; gap: 14px; }
+.def-caixa h2 { margin: 0; font-size: 24px; }
+.def-caixa label { display: flex; flex-direction: column; gap: 6px; font-size: 15px; color: #98A2B3; }
+.def-caixa select, .def-caixa input, .def-caixa textarea { font-family: inherit; font-size: 16px; background: #0A0C0F; color: #F2F4F7; border: 1px solid #2A333E; border-radius: 6px; padding: 8px; }
+.def-botoes { display: flex; gap: 10px; justify-content: flex-end; }
+.def-botoes button { font-size: 16px; font-weight: 600; padding: 10px 16px; border-radius: 6px; border: 1px solid #F2F4F7; background: #F2F4F7; color: #0A0C0F; cursor: pointer; min-height: 44px; }
+.def-botoes button.sec { background: transparent; color: #F2F4F7; border-color: #2A333E; }
+.tarefa { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 12px; border-radius: 8px; border: 1px solid #1B222A; }
