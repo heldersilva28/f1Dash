@@ -36,19 +36,19 @@ function blocoCarro(eu) {
     <circle cx="${cx}" cy="${cy}" r="46" fill="none" stroke="${t.c}" stroke-opacity="0.35" stroke-width="2.5"></circle>
     <circle cx="${cx}" cy="${cy}" r="46" fill="none" stroke="${t.c}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${t.dash}" transform="rotate(-90 ${cx} ${cy})" filter="url(#brilho)"></circle>`;
   const texto = (t, nome, cx, cy) => `
-    <div style="position:absolute;left:${cx - 44}px;top:${cy - 44}px;width:88px;height:88px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.1">
-      <span style="font-size:11px;font-weight:600;letter-spacing:.14em;color:#98A2B3">${nome}</span>
-      <span style="font-size:30px;font-weight:700;color:${t.c};line-height:1">${t.vida}%</span>
-      <span style="font-size:12px;font-weight:600"><span style="color:${t.sc}">${t.s}°</span><span style="color:#6B7684"> | </span><span style="color:${t.ic}">${t.i}°</span></span>
-      <span style="font-size:11px;color:#98A2B3">T <b style="color:${t.bc}">${t.b}°</b></span>
+    <div class="abs w88 h88 ai-c jc-c tc" style="left:${cx - 44}px;top:${cy - 44}px;display:flex;flex-direction:column;line-height:1.1">
+      <span class="f11 fw6 c-dim" style="letter-spacing:.14em">${nome}</span>
+      <span class="f30 fw7 lh1" style="color:${t.c}">${t.vida}%</span>
+      <span class="f12 fw6"><span style="color:${t.sc}">${t.s}°</span><span style="color:#6B7684"> | </span><span style="color:${t.ic}">${t.i}°</span></span>
+      <span class="f11 c-dim">T <b style="color:${t.bc}">${t.b}°</b></span>
     </div>`;
   const etiquetaAsa = (x, y, w, alin, titulo, part) => `
-    <div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;text-align:${alin};display:flex;flex-direction:column;line-height:1.1">
-      <span style="font-size:10px;font-weight:600;letter-spacing:.12em;color:#98A2B3">${titulo}</span>
-      <span style="font-size:17px;font-weight:700;color:${part.s}">${part.v}%</span>
+    <div class="abs" style="left:${x}px;top:${y}px;width:${w}px;text-align:${alin};display:flex;flex-direction:column;line-height:1.1">
+      <span class="f10 fw6 c-dim" style="letter-spacing:.12em">${titulo}</span>
+      <span class="f17 fw7" style="color:${part.s}">${part.v}%</span>
     </div>`;
   const svg = `
-  <svg style="position:absolute;left:0;top:0" width="404" height="424" viewBox="0 0 404 424" role="img" aria-label="Carro visto de cima: peças coloridas pelo dano e pneus pela vida restante">
+  <svg class="abs" style="left:0;top:0" width="404" height="424" viewBox="0 0 404 424" role="img" aria-label="Carro visto de cima: peças coloridas pelo dano e pneus pela vida restante">
     <defs><filter id="brilho" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.4" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter></defs>
     <g stroke="#4DA3FF" stroke-width="2" stroke-dasharray="1 5" stroke-linecap="round" opacity="0.8">
       <line x1="103" y1="122" x2="133" y2="122"></line><line x1="271" y1="122" x2="301" y2="122"></line>
@@ -103,7 +103,7 @@ function blocoCarro(eu) {
     ${anel(FE, 'FE', 54, 122)}${anel(FD, 'FD', 350, 122)}${anel(TE, 'TE', 54, 360)}${anel(TD, 'TD', 350, 360)}
   </svg>`;
   const html = `
-  <div style="position:relative;width:404px;height:424px;align-self:center">
+  <div class="w404 h424" style="position:relative;align-self:center">
     ${svg}
     ${etiquetaAsa(96, 42, 40, 'right', 'ASA', p.fwl)}
     ${etiquetaAsa(268, 42, 40, 'left', 'ASA', p.fwr)}
@@ -115,9 +115,9 @@ function blocoCarro(eu) {
     ['Fundo', p.floor.s, p.floor.v + '%'], ['Pontões', p.side.s, p.side.v + '%'], ['Difusor', p.diff.s, p.diff.v + '%'],
     ['Caixa', p.gb.s, p.gb.v + '%'], ['Motor', p.eng.s, motorTxt, 'span 2'],
   ].map(([n, c, v, span]) => `
-    <div style="grid-column:${span || 'auto'};display:flex;align-items:center;justify-content:space-between;gap:4px;background:#0E1216;border:1px solid #232B35;border-radius:6px;padding:5px 8px;font-size:13px">
-      <span style="display:flex;align-items:center;gap:5px;color:#98A2B3;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${c}"></span>${n}</span>
-      <b style="font-size:15px;color:${c}">${v}</b>
+    <div class="ai-c g4 bg-cx r6 pd5-8 f13" style="grid-column:${span || 'auto'};display:flex;justify-content:space-between;border:1px solid #232B35">
+      <span class="ai-c g5 c-dim" style="display:flex;white-space:nowrap"><span class="w7 h7 redondo" style="background:${c}"></span>${n}</span>
+      <b class="f15" style="color:${c}">${v}</b>
     </div>`).join('');
   return { html, chips };
 }

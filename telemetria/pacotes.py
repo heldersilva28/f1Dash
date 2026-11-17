@@ -102,6 +102,7 @@ def ler_sessao(dados, fmt):
         'tempo_meteo': a[0], 'temp_pista': a[1], 'temp_ar': a[2], 'voltas_total': a[3],
         'comprimento': a[4], 'tipo': a[5], 'pista': a[6], 'formula': a[7],
         'tempo_restante': a[8], 'duracao': a[9], 'pausa': a[11],
+        'espectador': a[12], 'carro_espectador': a[13],
     }
     nz = a[15]
     zonas = []

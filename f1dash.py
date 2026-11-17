@@ -11,6 +11,7 @@ import socket
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -23,6 +24,62 @@ TIPOS = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; ch
 
 sessao = Sessao()
 estatisticas = {'pacotes': 0, 'ignorados': 0, 'formatos': set()}
+
+
+class Difusor:
+    """Calcula o estado uma vez a cada 0,2 s e partilha-o com todos os ecrãs ligados (PC, tablet, telemóvel)."""
+    INTERVALO = 0.2
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.versao = 0
+        self.corpo = b'{}'
+        self.ultimo_erro = None
+
+    def atualizar(self, fonte=None):
+        fonte = fonte or sessao
+        try:
+            foto = fonte.fotografia()
+            foto['estatisticas'] = {'pacotes': estatisticas['pacotes'], 'ignorados': estatisticas['ignorados']}
+            corpo = json.dumps(foto, ensure_ascii=False).encode()
+            self.ultimo_erro = None
+        except Exception as e:  # nunca deixa um erro de cálculo calar o painel: avisa e mantém o último estado
+            texto = f'{type(e).__name__}: {e}'
+            if texto != self.ultimo_erro:
+                print('[erro] não consegui preparar os dados do painel:')
+                traceback.print_exc()
+                self.ultimo_erro = texto
+            corpo = None
+        with self.cond:
+            if corpo is not None:
+                self.corpo = corpo
+            self.versao += 1
+            self.cond.notify_all()
+
+    def correr(self):
+        while True:
+            self.atualizar()
+            time.sleep(self.INTERVALO)
+
+    def esperar(self, versao):
+        with self.cond:
+            self.cond.wait_for(lambda: self.versao != versao, timeout=5)
+            return self.versao, self.corpo
+
+
+difusor = Difusor()
+
+
+def ip_da_rede():
+    """IP deste PC na rede local, para abrir o painel num tablet ou telemóvel. Não envia nada pela rede."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.255.255.255', 1))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
 
 
 def escutar_udp(porta):
@@ -60,12 +117,12 @@ class Pedido(BaseHTTPRequestHandler):
         if self.path.startswith('/stream'):
             return self._stream()
         if self.path.startswith('/dados'):
-            return self._json(sessao.fotografia())
+            return self._enviar_json(difusor.corpo)
         caminho = self.path.split('?')[0]
         if caminho == '/':
             caminho = '/index.html'
         f = os.path.normpath(os.path.join(PASTA_WEB, caminho.lstrip('/')))
-        if not f.startswith(PASTA_WEB) or not os.path.isfile(f):
+        if not f.startswith(PASTA_WEB + os.sep) or not os.path.isfile(f):
             self.send_error(404)
             return
         with open(f, 'rb') as fh:
@@ -77,8 +134,7 @@ class Pedido(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
-    def _json(self, obj):
-        corpo = json.dumps(obj, ensure_ascii=False).encode()
+    def _enviar_json(self, corpo):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(corpo)))
@@ -91,15 +147,23 @@ class Pedido(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
+        versao = -1
         try:
             while True:
-                foto = sessao.fotografia()
-                foto['estatisticas'] = {'pacotes': estatisticas['pacotes'], 'ignorados': estatisticas['ignorados']}
-                self.wfile.write(b'data: ' + json.dumps(foto, ensure_ascii=False).encode() + b'\n\n')
+                versao, corpo = difusor.esperar(versao)
+                self.wfile.write(b'data: ' + corpo + b'\n\n')
                 self.wfile.flush()
-                time.sleep(0.2)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
+
+
+class Servidor(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return   # um browser fechou ou recarregou a página: normal, não é um erro
+        super().handle_error(request, client_address)
 
 
 def main():
@@ -117,14 +181,20 @@ def main():
         sys.exit(1)
 
     threading.Thread(target=escutar_udp, args=(a.porta_udp,), daemon=True).start()
+    threading.Thread(target=difusor.correr, daemon=True).start()
     if a.demo:
+        sessao.guardar = False      # a simulação não pode estragar o que o painel aprendeu das tuas corridas
+        sessao.memoria = {}
         import demo
         threading.Thread(target=demo.correr, args=(a.demo, a.porta_udp), daemon=True).start()
         print(f'[OK] Modo demonstração: {a.demo}')
 
-    srv = ThreadingHTTPServer(('0.0.0.0', a.porta_web), Pedido)
+    srv = Servidor(('0.0.0.0', a.porta_web), Pedido)
     url = f'http://localhost:{a.porta_web}'
     print(f'[OK] Painel em {url}  (no segundo monitor carrega F11 para ecrã inteiro)')
+    ip = ip_da_rede()
+    if ip and not ip.startswith('127.'):
+        print(f'[OK] No tablet ou telemóvel (mesma rede Wi-Fi): http://{ip}:{a.porta_web}')
     if not a.sem_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:

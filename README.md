@@ -14,10 +14,11 @@ Um ecrã próprio para **corrida**, **qualificação** e **treinos livres**, que
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Zero dependências](https://img.shields.io/badge/dependências-zero-2EA043?style=for-the-badge)
 ![Grátis](https://img.shields.io/badge/preço-grátis-8B5CF6?style=for-the-badge)
+[![Testes](https://img.shields.io/github/actions/workflow/status/heldersilva28/f1Dash/testes.yml?branch=main&style=for-the-badge&label=testes)](https://github.com/heldersilva28/f1Dash/actions/workflows/testes.yml)
 
 <br>
 
-[**Começar**](#-começar-em-3-passos) · [**Os ecrãs**](#-os-três-ecrãs) · [**Configurar o jogo**](#-configurar-o-jogo) · [**Problemas**](#-problemas-frequentes)
+[**Começar**](#-começar-em-3-passos) · [**Os ecrãs**](#-os-três-ecrãs) · [**Tablet e telemóvel**](#-no-tablet-ou-telemóvel) · [**Configurar o jogo**](#-configurar-o-jogo) · [**Problemas**](#-problemas-frequentes)
 
 <br>
 
@@ -61,14 +62,14 @@ Janela de box, posição à saída do pit, margem para o corte, combustível par
 </td>
 <td width="33%" valign="top">
 
-### 🖥️ PC ou consola
-Funciona no mesmo PC do jogo ou com PS5 / Xbox: basta apontar a telemetria para o IP do PC.
+### 📱 Monitor, tablet ou telemóvel
+Funciona com PC, PS5 ou Xbox. Sem segundo monitor? Abre o painel no tablet ou no telemóvel, com uma vista própria.
 
 </td>
 <td width="33%" valign="top">
 
-### 🧪 Modo demo
-Experimenta tudo sem abrir o jogo: o simulador envia pacotes iguais aos do F1 25.
+### 🚨 Alertas de relance
+Chuva a caminho, pneus no limite, bandeiras, asa partida, combustível curto: aparecem em grande, por cima de tudo.
 
 </td>
 </tr>
@@ -136,6 +137,7 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 | **Carro** | Dano de cada peça. Os anéis mostram vida dos pneus, temperatura de superfície e interior, e travões. |
 | **Estratégia** | Ritmo das últimas voltas, janela de box e a posição em que voltas à pista se parares agora (dada pelo jogo). |
 | **Energia** | Unidade motriz, bateria ERS, aero ativa, combustível e mensagens da direção de corrida. |
+| **Já sabe o desgaste** | O desgaste e o consumo que mediste nos treinos passam para a corrida, por isso a vida dos pneus aparece logo na primeira volta. |
 
 ### ⏱️ Qualificação
 
@@ -144,7 +146,7 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 | | |
 |---|---|
 | **Tabela com linha de corte** | Ajustada à sessão (Q1, Q2 ou Q3) e ao número de carros. |
-| **Delta ao vivo** | Contra a tua melhor volta, com previsão do tempo e da posição. |
+| **Delta ao vivo** | Contra a tua melhor volta do fim de semana: a da Q1 continua a ser a referência na Q2 e na Q3. Com previsão do tempo e da posição. |
 | **Mini-setores** | 8 por setor, comparados com a tua melhor volta e com a melhor da sessão. |
 | **Números-chave** | Volta ideal, margem para o corte e diferença para a pole. |
 | **Gestão da sessão** | Se ainda dá para mais uma tentativa, tráfego à tua volta, temperatura dos pneus e conjuntos disponíveis. |
@@ -185,8 +187,33 @@ O ecrã mostra de onde veio o número. A memória fica em `memoria.json`.
 
 </details>
 
+### 🚨 Alertas
+
+Por baixo do cabeçalho aparece uma barra com o que precisas de saber já. Fica visível pelo menos 5 segundos, para não piscar.
+
+| Nível | Exemplos |
+|---|---|
+| 🔴 **Perigo** | Bandeira vermelha · está a chover e tens pneus de seco · pneus no limite, box nas próximas voltas |
+| 🟡 **Aviso** | Safety Car / VSC · bandeira amarela · chuva prevista nos próximos 30 min · asa da frente danificada · pneus a sobreaquecer · combustível curto |
+| 🔵 **Informação** | Janela de box aberta · modo espectador |
+
 > [!NOTE]
-> O botão **⚙** no canto inferior direito abre as definições: escolher o ecrã à mão e, só se o automático falhar, pôr as voltas da corrida à mão.
+> O botão **⚙** no canto inferior direito abre as definições: escolher o ecrã à mão, escolher a vista (completa ou compacta) e, só se o automático falhar, pôr as voltas da corrida à mão.
+
+---
+
+## 📱 No tablet ou telemóvel
+
+Ao arrancar, o painel mostra o endereço para usar noutro aparelho:
+
+```text
+[OK] No tablet ou telemóvel (mesma rede Wi-Fi): http://192.168.1.20:8080
+```
+
+Abre esse endereço no browser do tablet ou do telemóvel, ligado ao mesmo Wi-Fi do PC. Em ecrãs pequenos, o painel passa sozinho para a **vista compacta**: cartões grandes com o essencial (posição, diferenças, tempos, pneus, estratégia) que se leem de relance e se ajustam ao ecrã. Podes ter o PC e o tablet abertos ao mesmo tempo.
+
+> [!TIP]
+> Se o tablet não conseguir abrir o endereço, a firewall do Windows está a bloquear. Na primeira vez que abres o painel, escolhe **Permitir** também para redes privadas.
 
 ---
 
@@ -214,7 +241,11 @@ No F1 25: **Definições → Definições de telemetria**
 ## 💡 Bom saber
 
 - Alguns valores precisam de **1 ou 2 voltas completas** com o painel aberto: consumo, desgaste por volta, vida dos pneus e delta ao vivo. Até lá aparece "a calcular…".
-- O delta ao vivo usa a tua melhor volta **feita com o painel aberto**.
+- O delta ao vivo usa a tua melhor volta **feita com o painel aberto**. Na qualificação, essa volta passa da Q1 para a Q2 e para a Q3.
+- O painel aguenta **flashbacks**: quando voltas atrás, o delta e os mini-setores refazem-se a partir desse ponto.
+- O consumo e o desgaste por composto ficam guardados por circuito em `memoria.json`. Na corrida, o painel usa-os até ter as suas próprias medições e diz de onde vêm.
+- O **modo demo não mexe** na memória: experimentar não estraga o que o painel aprendeu das tuas corridas.
+- A ver uma sessão como **espectador**, o painel segue o carro que o jogo está a mostrar.
 - O jogo não envia o desgaste dos pneus dos outros carros, por isso só aparece o teu.
 - Ao arrancar, o painel confirma o tamanho de todos os pacotes contra a especificação oficial da EA.
 
@@ -255,10 +286,11 @@ python f1dash.py --help
 flowchart LR
     A["🎮 F1 25<br>(PC, PS5 ou Xbox)"] -- "UDP :20777<br>até 60 Hz" --> B["🐍 f1dash.py<br>descodifica pacotes"]
     B --> C["🧠 telemetria/estado.py<br>estado da sessão"]
-    C -- "Server-Sent Events<br>5× por segundo" --> D["🖥️ Browser<br>localhost:8080"]
+    C -- "Server-Sent Events<br>5× por segundo" --> D["🖥️ Monitor<br>localhost:8080"]
+    C -- "mesma rede Wi-Fi" --> E["📱 Tablet / telemóvel"]
 ```
 
-Tudo corre na tua máquina com a biblioteca padrão do Python. O painel é HTML, CSS e JavaScript simples, sem frameworks.
+Tudo corre na tua máquina com a biblioteca padrão do Python. O estado é calculado uma vez e partilhado com todos os ecrãs ligados, por isso o PC e o tablet abertos ao mesmo tempo não pesam mais. O painel é HTML, CSS e JavaScript simples, sem frameworks.
 
 <details>
 <summary><b>Estrutura do projeto</b></summary>
@@ -279,8 +311,11 @@ f1Dash/
 │   ├── app.js           # os três ecrãs
 │   ├── carro.js         # desenho do carro e dos pneus
 │   └── estilo.css
-├── testes/
-│   └── teste_pacotes.py # python testes/teste_pacotes.py
+├── testes/              # python -m unittest discover -s testes
+│   ├── teste_pacotes.py # leitura dos pacotes 2025 e 2026
+│   ├── teste_estado.py  # flashbacks, espectador, alertas, memória…
+│   └── teste_servidor.py
+├── .github/workflows/   # testes automáticos em cada push (Windows e Linux)
 └── imagens/             # capturas usadas neste README
 ```
 

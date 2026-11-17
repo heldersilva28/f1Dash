@@ -54,11 +54,19 @@ def ler_memoria():
 
 
 def guardar_memoria(m):
+    """Escreve primeiro num ficheiro temporário e só depois troca: se o PC desligar a meio, o antigo fica intacto."""
+    tmp = FICHEIRO_MEMORIA + '.tmp'
     try:
-        with open(FICHEIRO_MEMORIA, 'w', encoding='utf-8') as f:
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(m, f, ensure_ascii=False, indent=1)
-    except OSError:
-        pass
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, FICHEIRO_MEMORIA)
+    except (OSError, TypeError, ValueError):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def voltas_completas(pista, comprimento):
@@ -68,6 +76,10 @@ def voltas_completas(pista, comprimento):
 
 
 CORTES_PENALIZACAO = {0: 'drive-through', 1: 'stop & go', 4: 'penalização +{t} s', 6: 'desqualificado'}
+
+
+def e_qualificacao(tipo):
+    return 5 <= tipo <= 14
 
 
 def ecra_da_sessao(tipo):
@@ -124,17 +136,25 @@ def desvio(ys):
 class Sessao:
     N_MINI = 8   # mini-setores por setor
 
-    def __init__(self):
+    RECUO_FLASHBACK = 30   # metros: se a distância na volta recuar mais do que isto, foi um flashback
+
+    def __init__(self, guardar=True):
         self.lock = threading.Lock()
-        self.memoria = ler_memoria()
+        self.guardar = guardar     # False no modo demo: a simulação não mexe na memória das tuas corridas
+        self.memoria = ler_memoria() if guardar else {}
+        self.sessao = None
+        self.referencia_pendente = None
         self.reiniciar(None)
         self.ultimo_pacote = 0.0
         self.formato = None
 
     # ------------------------------------------------------------ gestão
     def reiniciar(self, uid):
+        # a melhor volta da Q1 continua a servir de referência na Q2 e na Q3
+        self.referencia_pendente = self._referencia_para_guardar() or self.referencia_pendente
         self.uid = uid
         self.jogador = 0
+        self.espectador = False
         self.sessao = None
         self.voltas = None
         self.telem = None
@@ -144,11 +164,19 @@ class Sessao:
         self.ativos = 0
         self.participantes = []
         self.historico = {}
-        self.conjuntos = None
         self.mensagens = deque(maxlen=12)
         self.volta_rapida = None
         self.paragens_vistas = {}
-        # dados do jogador recolhidos volta a volta
+        self.dist_anterior = {}      # carro -> distância na volta no último pacote (para detetar flashbacks)
+        # mini-setores de todos os carros
+        self.mini_atual = {}         # carro -> {idx: tempo acumulado}
+        self.mini_volta = {}         # carro -> número da volta a que mini_atual pertence
+        self.mini_melhor_sessao = {}  # idx -> melhor tempo do segmento
+        self._reiniciar_jogador()
+
+    def _reiniciar_jogador(self):
+        """Dados que só fazem sentido para o carro que estamos a seguir."""
+        self.conjuntos = None
         self.minha_volta = None
         self.inicio_volta = {}      # combustível e desgaste no início da volta atual
         self.consumos = deque(maxlen=10)
@@ -160,12 +188,33 @@ class Sessao:
         self.traco_atual = {}
         self.traco_melhor = None
         self.tempo_melhor_traco = None
-        # mini-setores de todos os carros
-        self.mini_atual = {}         # carro -> {idx: tempo acumulado}
-        self.mini_volta = {}         # carro -> número da volta a que mini_atual pertence
-        self.mini_melhor_sessao = {}  # idx -> melhor tempo do segmento
+        self.referencia_origem = None
         self.mini_meu_melhor = {}    # idx -> melhor tempo do segmento (jogador)
-        self.mini_cores_atual = {}
+
+    def _referencia_para_guardar(self):
+        s = self.sessao
+        if not (s and e_qualificacao(s['tipo']) and self.traco_melhor and not self.espectador):
+            return None
+        return {'pista': s['pista'], 'traco': self.traco_melhor, 'tempo': self.tempo_melhor_traco,
+                'mini_meu': dict(self.mini_meu_melhor), 'mini_sessao': dict(self.mini_melhor_sessao),
+                'origem': self.referencia_origem or SESSOES.get(s['tipo'], 'Qualificação')}
+
+    def _recuperar_referencia(self, s):
+        ref, self.referencia_pendente = self.referencia_pendente, None
+        if not ref or ref['pista'] != s['pista'] or not e_qualificacao(s['tipo']) or self.tempo_melhor_traco:
+            return
+        self.traco_melhor, self.tempo_melhor_traco = ref['traco'], ref['tempo']
+        self.mini_meu_melhor = dict(ref['mini_meu'])
+        self.mini_melhor_sessao = dict(ref['mini_sessao'])
+        self.referencia_origem = ref['origem']
+
+    def _carro_seguido(self, cab):
+        """O teu carro; a ver como espectador, o carro que o jogo está a mostrar."""
+        s = self.sessao
+        if s and s.get('espectador'):
+            alvo = s.get('carro_espectador', 255)
+            return alvo if alvo < 255 else 255
+        return cab['jogador']
 
     def receber(self, cab, nome, c):
         with self.lock:
@@ -173,11 +222,17 @@ class Sessao:
             self.formato = cab['formato']
             if cab['uid'] != self.uid:
                 self.reiniciar(cab['uid'])
-            self.jogador = cab['jogador']
             if nome == 'sessao':
+                if self.sessao is None:
+                    self._recuperar_referencia(c)
                 self.sessao = c
+                self.espectador = bool(c.get('espectador'))
                 self._aprender_corrida(c)
-            elif nome == 'voltas':
+            j = self._carro_seguido(cab)
+            if j != self.jogador:
+                self._reiniciar_jogador()
+                self.jogador = j
+            if nome == 'voltas':
                 self._voltas(c)
             elif nome == 'evento':
                 self._evento(c)
@@ -253,7 +308,7 @@ class Sessao:
         m.setdefault('corridas', {})[chave] = s['voltas_total']
         if completas:
             m['percentagem'] = round(s['voltas_total'] / completas, 3)
-        guardar_memoria(m)
+        self._persistir()
 
     def voltas_corrida(self):
         """Devolve (voltas, de onde vem o número)."""
@@ -275,6 +330,29 @@ class Sessao:
         if completas:
             return completas, 'distância completa'
         return None, ''
+
+    # ------------------------------------------------------------ medições guardadas por circuito
+    def _guardar_medicoes(self):
+        """Guarda consumo e desgaste por composto, para a corrida já os conhecer desde a primeira volta."""
+        s = self.sessao
+        if not s or s['tipo'] == 18 or self.espectador or not (self.consumos or self.desgaste_volta):
+            return
+        p = self.memoria.setdefault('pistas', {}).setdefault(str(s['pista']), {})
+        if self.consumos:
+            p['consumo'] = round(media(list(self.consumos)), 3)
+        comp = self._composto(self.jogador)
+        if self.desgaste_volta and comp in ('S', 'M', 'H', 'I', 'W'):
+            p.setdefault('desgaste', {})[comp] = [round(media([d[k] for d in self.desgaste_volta]), 3) for k in range(4)]
+        p['sessao'] = SESSOES.get(s['tipo'], 'Sessão')
+        p['quando'] = int(time.time())
+        self._persistir()
+
+    def _persistir(self):
+        if self.guardar:
+            guardar_memoria(self.memoria)
+
+    def _medicoes_pista(self):
+        return self.memoria.get('pistas', {}).get(str((self.sessao or {}).get('pista')), {})
 
     # ------------------------------------------------------------ eventos
     def _evento(self, ev):
@@ -319,11 +397,17 @@ class Sessao:
                 self._msg('{c} — box' + (f', {comp}' if comp else ''), '#98A2B3', v['volta'], carro=i)
             self.paragens_vistas[i] = v['paragens']
             # mini-setores
+            d = v['dist_volta']
             if self.mini_volta.get(i) != v['volta']:
                 self._fechar_mini(i)
                 self.mini_volta[i] = v['volta']
                 self.mini_atual[i] = {}
-            d = v['dist_volta']
+            elif d < self.dist_anterior.get(i, d) - self.RECUO_FLASHBACK:
+                # flashback: esquece os mini-setores à frente do ponto para onde o jogo voltou
+                m = self.mini_atual.get(i, {})
+                for k in [k for k in m if lim[k] > d]:
+                    del m[k]
+            self.dist_anterior[i] = d
             if d > 0:
                 m = self.mini_atual[i]
                 for k, fim in enumerate(lim):
@@ -355,23 +439,33 @@ class Sessao:
         if j >= len(self.voltas):
             return
         v = self.voltas[j]
-        # traço tempo-distância desta volta (cada 10 m)
-        if v['dist_volta'] > 0:
-            b = int(v['dist_volta'] // 10)
-            self.traco_atual.setdefault(b, v['atual'])
+        d = v['dist_volta']
+        if self.minha_volta is not None and v['volta'] < self.minha_volta:
+            # flashback para antes da linha de meta: a volta recomeça a meio, por isso não serve de referência
+            self.minha_volta = v['volta']
+            self.traco_atual = {}
+            self.inicio_volta = {}
+            self.estado_volta_atual = v['estado_piloto']
+            return
+        if self.traco_atual and anterior and j < len(anterior) and anterior[j]['volta'] == v['volta'] \
+                and d < anterior[j]['dist_volta'] - self.RECUO_FLASHBACK:
+            # flashback a meio da volta: os pontos à frente vão ser percorridos outra vez
+            b = int(d // 10)
+            self.traco_atual = {k: t for k, t in self.traco_atual.items() if k <= b}
         if self.minha_volta is None:
             self.minha_volta = v['volta']
             self._marcar_inicio_volta()
             self.estado_volta_atual = v['estado_piloto']
-            return
-        if v['volta'] != self.minha_volta:
+        elif v['volta'] != self.minha_volta:
             ultima = v['ultima']
-            # traço de referência = melhor volta válida
-            completa = bool(self.traco_atual) and min(self.traco_atual) <= 2
+            # traço de referência = melhor volta válida, percorrida do início ao fim com o painel aberto
+            completa = bool(self.traco_atual) and min(self.traco_atual) <= 2 \
+                and max(self.traco_atual) * 10 >= self._comprimento() - 300
             if ultima and completa and self.estado_volta_atual in (1, 4) and not self._ultima_invalida(anterior):
                 if self.tempo_melhor_traco is None or ultima < self.tempo_melhor_traco:
                     self.tempo_melhor_traco = ultima
                     self.traco_melhor = dict(self.traco_atual)
+                    self.referencia_origem = SESSOES.get((self.sessao or {}).get('tipo'), None)
             # voltas de saída / entrada (para saber se ainda dá tempo na qualificação)
             if self.estado_volta_atual == 3 and ultima:
                 self.tempos_saida.append(ultima)
@@ -390,10 +484,14 @@ class Sessao:
                     self.desgaste_volta.append(delta)
                 elif any(x < 0 for x in delta):
                     self.desgaste_volta.clear()   # pneus novos
+                self._guardar_medicoes()
             self.minha_volta = v['volta']
             self.traco_atual = {}
             self.estado_volta_atual = v['estado_piloto']
             self._marcar_inicio_volta()
+        # traço tempo-distância desta volta (cada 10 m); só depois de fechar a anterior
+        if d > 0:
+            self.traco_atual.setdefault(int(d // 10), v['atual'])
 
     def _ultima_invalida(self, anterior):
         if anterior and self.jogador < len(anterior):
@@ -452,13 +550,15 @@ class Sessao:
         ligado = agora - self.ultimo_pacote < 3
         if not (self.sessao and self.voltas):
             return {'ligado': ligado, 'pronto': False, 'formato': self.formato}
+        if not 0 <= self.jogador < len(self.voltas):
+            # a ver como espectador sem carro escolhido: não há "o teu carro" para mostrar
+            return {'ligado': ligado, 'pronto': False, 'formato': self.formato, 'espectador': True}
         s = self.sessao
-        j = self.jogador
         tipo = s['tipo']
         ecra = ecra_da_sessao(tipo)
         L = self._comprimento()
         out = {
-            'ligado': ligado, 'pronto': True, 'formato': self.formato, 'ecra': ecra,
+            'ligado': ligado, 'pronto': True, 'formato': self.formato, 'ecra': ecra, 'espectador': self.espectador,
             'sessao': {
                 'tipo': tipo, 'nome': SESSOES.get(tipo, 'Sessão'), 'pista': PISTAS.get(s['pista'], f"Pista {s['pista']}"),
                 'comprimento': L, 'voltas_total': s['voltas_total'], 'restante': s['tempo_restante'],
@@ -485,7 +585,65 @@ class Sessao:
             out['quali'] = self._quali(carros)
         else:
             out['treinos'] = self._treinos(carros)
+        out['sessao']['chuva'] = self._chuva_prevista()
+        out['alertas'] = self._alertas(out)
         return out
+
+    def _chuva_prevista(self):
+        """Primeira previsão desta sessão, nos próximos 30 min, com probabilidade de chuva de 40% ou mais."""
+        s = self.sessao
+        for p in sorted(s['previsao'], key=lambda p: p['minutos']):
+            if p['tipo'] == s['tipo'] and 0 < p['minutos'] <= 30 and p['chuva'] >= 40:
+                return {'min': p['minutos'], 'chuva': p['chuva']}
+        return None
+
+    def _alertas(self, out):
+        """Avisos curtos para ler de relance, do mais grave para o menos grave."""
+        s, eu, ecra = out['sessao'], out['eu'], out['ecra']
+        res = []
+
+        def alerta(ident, nivel, texto):
+            res.append({'id': ident, 'nivel': nivel, 'texto': texto})
+
+        em_pista = eu.get('estado_piloto', 0) != 0 and not eu.get('box')
+        bandeira = eu.get('bandeira')
+        if bandeira == 4:
+            alerta('vermelha', 'perigo', 'Bandeira vermelha')
+        if s['safety_car'] == 1:
+            alerta('sc', 'aviso', 'Safety Car em pista')
+        elif s['safety_car'] == 2:
+            alerta('sc', 'aviso', 'Virtual Safety Car')
+        elif bandeira == 3:
+            alerta('amarela', 'aviso', 'Bandeira amarela — cuidado à frente')
+        # tempo
+        seco = eu.get('composto') in ('S', 'M', 'H')
+        a_chover = (self.sessao.get('tempo_meteo') or 0) >= 3
+        if a_chover and seco and em_pista:
+            alerta('chuva', 'perigo', 'Está a chover e tens pneus de seco')
+        elif s['chuva'] and seco:
+            c = s['chuva']
+            alerta('chuva', 'aviso', f"Chuva {c['chuva']}% daqui a {c['min']} min — prepara os intermédios")
+        # carro
+        dan = eu.get('danos') or {}
+        asa = max(dan.get('asa_fe', 0), dan.get('asa_fd', 0))
+        if asa >= 25:
+            alerta('asa', 'aviso', f'Asa da frente danificada ({asa}%) — pondera trocá-la')
+        interior = eu.get('pneus_int') or []
+        if em_pista and interior and max(interior) > 115:
+            alerta('temp', 'aviso', f'Pneus a sobreaquecer ({max(interior)}° no interior)')
+        if ecra == 'corrida':
+            vida = eu.get('vida_restante_voltas')
+            faltam = (s.get('voltas_total') or 0) - (eu.get('volta') or 0)
+            if vida is not None and vida <= 2 and faltam > vida:
+                alerta('box', 'perigo', 'Pneus no limite — box ' + ('nesta volta' if vida == 0 else f'nas próximas {vida} voltas'))
+            elif s['box_ideal'] and s['box_ideal'] <= eu.get('volta', 0) <= (s['box_ultima'] or s['box_ideal']):
+                alerta('box', 'info', f"Janela de box aberta até à volta {s['box_ultima'] or s['box_ideal']}")
+            margem = eu.get('margem_voltas')
+            if margem is not None and margem < -0.2:
+                alerta('fuel', 'aviso', f'Combustível curto: faltam {abs(margem):.1f} voltas — poupa')
+        ordem = {'perigo': 0, 'aviso': 1, 'info': 2}
+        res.sort(key=lambda a: ordem[a['nivel']])
+        return res
 
     def _previsao(self):
         s = self.sessao
@@ -538,6 +696,7 @@ class Sessao:
             'estado_piloto': v['estado_piloto'], 'invalida': bool(v['invalida']), 'paragens': v['paragens'],
             'codigo': self._cod(j), 'cor': self._cor(j), 's1_ms': v['s1'], 's2_ms': v['s2'],
             'nome': self.participantes[j]['nome'] if j < len(self.participantes) else '',
+            'box': v['box_estado'] > 0, 'referencia_origem': self.referencia_origem,
         }
         h = self.historico.get(j)
         if h and h['melhor_volta'] and h['melhor_volta'] <= len(hist):
@@ -570,9 +729,22 @@ class Sessao:
             eu['aero'] = {'modo': t2['aero_modo'], 'disp': t2['aero_disp'], 'dist': t2['aero_dist'],
                           'ovtk_disp': t2['ovtk_disp'], 'ovtk_ativo': t2['ovtk_ativo'], 'ovtk_dist': t2['ovtk_dist'],
                           'regras_2026': t2['regras_2026']}
-        eu['consumo_volta'] = round(media(list(self.consumos)), 2) if self.consumos else None
+        # consumo e desgaste: o que mediste nesta sessão; até lá, o que ficou guardado dos treinos neste circuito
+        guardado = self._medicoes_pista()
+        origem = f"medido em {guardado.get('sessao', 'sessões anteriores')}"
+        eu['consumo_volta'], eu['consumo_fonte'] = None, None
+        if self.consumos:
+            eu['consumo_volta'], eu['consumo_fonte'] = round(media(list(self.consumos)), 2), 'esta sessão'
+        elif guardado.get('consumo'):
+            eu['consumo_volta'], eu['consumo_fonte'] = round(guardado['consumo'], 2), origem
+        taxa, eu['desgaste_fonte'] = None, None
         if self.desgaste_volta:
             taxa = [round(media([d[k] for d in self.desgaste_volta]), 2) for k in range(4)]
+            eu['desgaste_fonte'] = 'esta sessão'
+        elif est and guardado.get('desgaste', {}).get(eu.get('composto')):
+            taxa = [round(x, 2) for x in guardado['desgaste'][eu['composto']]]
+            eu['desgaste_fonte'] = origem
+        if taxa:
             eu['desgaste_volta'] = taxa
             if dan:
                 restos = [(70 - dan['desgaste'][k]) / taxa[k] for k in range(4) if taxa[k] > 0.05]
