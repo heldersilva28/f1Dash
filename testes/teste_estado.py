@@ -496,6 +496,7 @@ class TesteResumo(ComMemoriaTemporaria):
         self.assertEqual((r['posicao'], r['grelha'], r['pontos'], r['resultado']), (3, 5, 15, 'Terminou'))
         self.assertEqual(r['stints'], [{'composto': 'S', 'voltas': 18}, {'composto': 'M', 'voltas': 26}])
         self.assertEqual(r['para_vencedor_s'], 12.5)
+        self.assertEqual(s.fotografia()['alertas'], [])        # corrida acabada: sem alertas
 
     def test_treinos_no_fim_da_sessao(self):
         s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=60)

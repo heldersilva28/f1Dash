@@ -717,7 +717,7 @@ class Sessao:
         else:
             out['treinos'] = self._treinos(carros)
         out['sessao']['chuva'] = self._chuva_prevista()
-        out['alertas'] = self._alertas(out)
+        out['alertas'] = [] if self.fim_sessao else self._alertas(out)   # sessão acabada: já não há nada a avisar
         if self.fim_sessao:
             out['resumo'] = self._resumo(out)
         return out

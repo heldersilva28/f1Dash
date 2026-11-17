@@ -219,3 +219,8 @@ html.compacto .alerta { flex: none; padding: 12px 14px; font-size: 18px; white-s
 .resumo-grelha { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 16px; }
 .resumo-grelha .k-cartao { padding: 22px 26px; gap: 10px; justify-content: center; }
 .resumo-grelha .k-grande { font-size: 120px; }
+/* lista que só mostra as linhas que cabem inteiras: as que sobram passam para uma coluna escondida */
+.so-cabem { flex: 1; min-height: 0; display: flex; flex-direction: column; flex-wrap: wrap; column-gap: 40px; row-gap: 8px; overflow: hidden; align-content: flex-start; }
+.so-cabem > * { width: 100%; }
+.resumo-grelha { grid-auto-flow: dense; }
+.resumo-grelha [data-alto] { grid-row: 1 / span 3; grid-column: 3; justify-content: flex-start; }

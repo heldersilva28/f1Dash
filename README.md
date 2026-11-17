@@ -24,7 +24,7 @@ Um ecrã próprio para **corrida**, **qualificação** e **treinos livres**, que
 
 <img src="imagens/corrida.png" alt="Ecrã de corrida do F1 Dash: classificação, carro da frente e de trás, tempos, estado do carro, estratégia e unidade motriz" width="100%">
 
-<sub>Ecrã de corrida no modo de demonstração, com dados simulados.</sub>
+<sub>Ecrã de corrida no modo de demonstração, com dados simulados: volta 29, plano a pedir a paragem nesta volta.</sub>
 
 </div>
 
@@ -192,11 +192,22 @@ As corridas ficam guardadas por circuito **e pela duração escolhida no jogo**:
 
 ### 🏁 Fim da sessão
 
+<img src="imagens/resumo-corrida.png" alt="Resumo no fim da corrida: posição final, pontos, tempo total, paragens, stints e classificação" width="100%">
+
 Quando a sessão acaba, o painel mostra um resumo sozinho, até começar a seguinte:
 
 - **Corrida:** posição, lugares ganhos, pontos, tempo total e diferença para o vencedor, paragens, penalizações, stints e classificação. Tudo vem da classificação final que o jogo envia.
 - **Qualificação:** posição de partida, diferença para a pole e se passaste o corte.
 - **Treinos:** o que ficou por fazer no programa, ritmo de corrida, consumo e desgaste guardados, a estratégia provável e a sessão seguinte.
+
+<details>
+<summary><b>Ver o resumo dos treinos</b></summary>
+
+<br>
+
+<img src="imagens/resumo-treinos.png" alt="Resumo no fim dos treinos: programa, ritmo de corrida, medições guardadas, estratégia provável e sessão seguinte" width="100%">
+
+</details>
 
 ### 🚨 Alertas
 
@@ -220,6 +231,8 @@ Ao arrancar, o painel mostra o endereço para usar noutro aparelho:
 ```text
 [OK] No tablet ou telemóvel (mesma rede Wi-Fi): http://192.168.1.20:8080
 ```
+
+<img src="imagens/telemovel.png" alt="Vista compacta no telemóvel: corrida, qualificação e treinos" width="100%">
 
 Abre esse endereço no browser do tablet ou do telemóvel, ligado ao mesmo Wi-Fi do PC. Em ecrãs pequenos, o painel passa sozinho para a **vista compacta**: cartões grandes com o essencial (posição, diferenças, tempos, pneus, estratégia) que se leem de relance e se ajustam ao ecrã. Podes ter o PC e o tablet abertos ao mesmo tempo.
 

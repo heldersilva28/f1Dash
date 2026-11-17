@@ -85,7 +85,7 @@ function blocoCarroPainel(eu, titulo) {
   return `<section class="pd14-18 g10 p" style="display:flex;flex-direction:column">
     <div class="row sb"><span class="l">${titulo}</span>
       <span class="g8 f16 row">${pneu(eu.composto)}${TN[eu.composto] || ''} · ${eu.idade ?? 0} voltas</span></div>
-    ${b.html}
+    <div style="align-self:center;zoom:${alturaUtil < 952 ? 0.84 : 1}">${b.html}</div>
     <div class="cols3 g6 g">${b.chips}</div>
     <span class="f12 tc m">Peças: verde OK · amarelo/laranja dano · vermelho crítico — anel = vida do pneu · sup. | int. · T = travão</span>
   </section>`;
@@ -285,7 +285,7 @@ function renderCorrida(d) {
       </section>
       <section class="cresce mh0 pd16-22 g8 oh p col">
         <span class="l">Direção de corrida</span>
-        ${(d.mensagens || []).map((m) => `<div class="g10 ai-c f16 g" style="grid-template-columns:42px 8px minmax(0,1fr)"><span class="fw6 m">V${m.volta}</span><span class="w8 h8 redondo" style="background:${m.cor}"></span><span>${esc(m.texto)}</span></div>`).join('') || '<span class="m">Sem mensagens</span>'}
+        <div class="so-cabem">${(d.mensagens || []).map((m) => `<div class="g10 ai-c f16 g" style="grid-template-columns:42px 8px minmax(0,1fr)"><span class="fw6 m">V${m.volta}</span><span class="w8 h8 redondo" style="background:${m.cor}"></span><span>${esc(m.texto)}</span></div>`).join('') || '<span class="m">Sem mensagens</span>'}</div>
       </section>
     </div>
   </div>`;
@@ -613,7 +613,7 @@ function compactoCorrida(d) {
     const t = c.eu ? '—' : dv ? (dv > 0 ? '+' : '−') + Math.abs(dv) + ' V' : fmtRel((c.lider_ms - meu.lider_ms) / 1000);
     return `<div class="k-fila${c.eu ? ' eu' : ''}" style="${c.eu ? `background:${c.cor}33` : ''}"><span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span>${linhaPiloto(c)}<span class="tr">${t}</span>${pneu(c.composto)}</div>`;
   }).join('');
-  const vida = eu.vida_restante_voltas != null ? `~${eu.vida_restante_voltas} voltas` : 'a calcular…';
+  const vida = eu.vida_restante_voltas != null ? `${eu.vida_fonte === 'do jogo' ? '' : '~'}${eu.vida_restante_voltas} voltas` : 'a calcular…';
   const margem = eu.margem_voltas;
   return `${kTopo(d, s.nome, `<span class="f32 fw7">V${volta}</span><span class="f20 m">/ ${total || '—'}</span>`, pilulaBandeira(d))}
   <div class="k-grelha">
@@ -624,7 +624,7 @@ function compactoCorrida(d) {
     ${kCartao('Tempos', `${kLinha('Volta atual', fmtV(eu.atual_ms))}
       ${kLinha('Delta', eu.delta_ms == null ? '—' : fmtD(eu.delta_ms), eu.delta_ms == null ? null : eu.delta_ms <= 0 ? '#3DDC84' : '#FF4D4D')}
       ${kLinha('Última', fmtV(eu.ultima_ms))}${kLinha('Melhor', fmtV(eu.melhor_ms), '#3DDC84')}`)}
-    ${kCartao(`Pneus · ${TN[eu.composto] || '—'} · ${eu.idade ?? 0} voltas`, `${kPneus(eu)}${kLinha('Vida (até 70%)', vida)}
+    ${kCartao(`Pneus · ${TN[eu.composto] || '—'} · ${eu.idade ?? 0} voltas`, `${kPneus(eu)}${kLinha(eu.vida_fonte === 'do jogo' ? 'Voltas que restam' : 'Vida (até 70%)', vida)}
       ${eu.desgaste_fonte && eu.desgaste_fonte !== 'esta sessão' ? `<span class="f13 m">${esc(eu.desgaste_fonte)}</span>` : ''}`)}
     ${kCartao('Estratégia', `${kLinha('Janela de box', s.box_ideal ? `V${s.box_ideal}–V${s.box_ultima || s.box_ideal}` : '—', eu.cor)}
       ${kLinha('Se parares agora', cr.reentrada ? 'P' + cr.reentrada.pos : '—')}
@@ -688,7 +688,7 @@ function compactoTreinos(d) {
     ${kCartao('Ritmo do stint', lg ? `${kLinha('Média', fmtV(lg.media_ms))}${kLinha('Degradação', fmtD(lg.degradacao_ms) + ' s/volta', '#FFB020')}
       ${kLinha('Consistência', '±' + (lg.consistencia_ms / 1000).toFixed(2) + ' s', lg.consistencia_ms < 200 ? '#3DDC84' : '#FFB020')}` : '<span class="f16 m">Faz 2 voltas seguidas no mesmo pneu</span>')}
     ${kCartao('Desgaste por volta', `<div class="k-pneus">${[2, 3, 0, 1].map((k) => `<div class="cx"><span class="f13 m">${RODA[k]}</span><span class="f24 fw7"${eu.pneu_limite === k ? ' style="color:#FFB020"' : ''}>${taxa ? taxa[k].toFixed(1) + '%' : '—'}</span></div>`).join('')}</div>
-      ${kLinha('Vida estimada', eu.vida_total_voltas != null ? '~' + eu.vida_total_voltas + ' voltas' : 'a calcular…')}`)}
+      ${kLinha(eu.vida_fonte === 'do jogo' ? 'Vida útil (jogo)' : 'Vida estimada', eu.vida_total_voltas != null ? (eu.vida_fonte === 'do jogo' ? '' : '~') + eu.vida_total_voltas + ' voltas' : 'a calcular…')}`)}
     ${kCartao('Combustível para a corrida', `${kLinha('Consumo', consumo ? consumo.toFixed(2) + ' kg/volta' : 'a calcular…')}
       ${kLinha(voltasCorrida ? voltasCorrida + ' voltas + 1' : 'Voltas da corrida', totalKg ? totalKg + ' kg' : '—', eu.cor)}
       ${t.plano_corrida ? kLinha('Estratégia', esc(textoStints(t.plano_corrida))) : ''}`)}
@@ -744,8 +744,8 @@ function itensResumo(d) {
   }
   if (r.stints && r.stints.length) itens.push(['Stints', `${barraStints(r.stints)}<span class="f16 m">${r.voltas} voltas</span>`]);
   if (r.tabela && r.tabela.length) {
-    itens.push(['Classificação', `<div class="col g2">${r.tabela.map((c) => `<div class="k-fila${c.eu ? ' eu' : ''}" style="height:28px;${c.eu ? `background:${c.cor}33` : ''}">
-      <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span>${esc(c.codigo)}</span><span class="tr">${c.pontos} pts</span><span></span></div>`).join('')}</div>`]);
+    itens.push(['Classificação', `<div class="col g2 cresce">${r.tabela.map((c) => `<div class="k-fila${c.eu ? ' eu' : ''}" style="height:28px;${c.eu ? `background:${c.cor}33` : ''}">
+      <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span>${esc(c.codigo)}</span><span class="tr">${c.pontos} pts</span><span></span></div>`).join('')}</div>`, ' data-alto']);
   }
   if (r.programa) {
     itens.push(['Programa', `<span class="f40 fw7${r.programa.feitas === r.programa.total ? ' c-verde' : ''}">${r.programa.feitas} de ${r.programa.total}</span>
@@ -764,7 +764,7 @@ function itensResumo(d) {
 function renderResumo(d) {
   const r = d.resumo;
   return `${cabecalho(d, 'Fim · ' + r.sessao, d.eu.cor, `<span class="f32 fw7">Resumo da sessão</span>${r.fonte ? `<span class="f15 m">${esc(r.fonte)}</span>` : ''}`, '')}
-    <div class="resumo-grelha">${itensResumo(d).map(([t, c]) => kCartao(t, c)).join('')}</div>`;
+    <div class="resumo-grelha">${itensResumo(d).map(([t, c, extra]) => kCartao(t, c, extra)).join('')}</div>`;
 }
 function compactoResumo(d) {
   const r = d.resumo;
