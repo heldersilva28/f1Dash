@@ -192,22 +192,43 @@ As corridas ficam guardadas por circuito **e pela duração escolhida no jogo**:
 
 ### 🏁 Fim da sessão
 
-<img src="imagens/resumo-corrida.png" alt="Resumo no fim da corrida: posição final, pontos, tempo total, paragens, stints e classificação" width="100%">
+Quando a sessão acaba, o painel mostra sozinho um resumo completo, até começar a sessão seguinte. Os dados vêm do que o jogo envia no fim: a classificação final, as posições volta a volta e o histórico de voltas de todos os carros.
 
-Quando a sessão acaba, o painel mostra um resumo sozinho, até começar a seguinte:
+#### Corrida
 
-- **Corrida:** posição, lugares ganhos, pontos, tempo total e diferença para o vencedor, paragens, penalizações, stints e classificação. Tudo vem da classificação final que o jogo envia.
-- **Qualificação:** posição de partida, diferença para a pole e se passaste o corte.
-- **Treinos:** o que ficou por fazer no programa, ritmo de corrida, consumo e desgaste guardados, a estratégia provável e a sessão seguinte.
+<img src="imagens/resumo-corrida.png" alt="Resumo da corrida: classificação final com a estratégia de pneus de cada piloto, posição volta a volta, tempos por volta, stints, medições e ritmo de corrida" width="100%">
 
-<details>
-<summary><b>Ver o resumo dos treinos</b></summary>
+| | |
+|---|---|
+| **Classificação final** | Todos os pilotos com a estratégia de pneus, lugares ganhos ou perdidos, diferença para o vencedor, pontos e quem fez a volta mais rápida. |
+| **Posição volta a volta** | O gráfico da tua corrida, com as paragens marcadas. |
+| **Tempos por volta** | Cada volta com a cor do composto; voltas de box e inválidas esbatidas, a melhor destacada. |
+| **Stints e paragens** | Voltas, média e melhor volta de cada stint, paragens e penalizações. |
+| **Ritmo de corrida** | Os pilotos mais rápidos em ritmo (mediana das voltas limpas) e onde ficaste. |
 
-<br>
+#### Qualificação
 
-<img src="imagens/resumo-treinos.png" alt="Resumo no fim dos treinos: programa, ritmo de corrida, medições guardadas, estratégia provável e sessão seguinte" width="100%">
+<img src="imagens/resumo-qualificacao.png" alt="Resumo da qualificação: classificação com a linha de corte, setores contra os melhores da sessão, as tuas voltas e onde perdeste tempo para a pole" width="100%">
 
-</details>
+| | |
+|---|---|
+| **Classificação** | Com a linha de corte e as diferenças para a pole. |
+| **Setores** | Os teus melhores setores contra os melhores da sessão, e a volta ideal. |
+| **As tuas voltas** | Cada volta com os setores coloridos (roxo melhor da sessão, verde melhor pessoal) e as voltas de saída e entrada. |
+| **Onde perdeste tempo** | A tua melhor volta comparada, setor a setor, com a da pole e a do carro à tua frente. |
+| **Pneus que sobram** | Os conjuntos que ainda tens para o resto do fim de semana. |
+
+#### Treinos livres
+
+<img src="imagens/resumo-treinos.png" alt="Resumo dos treinos: programa, tabela da sessão, simulação de corrida, tempos por volta, stints, medições e o que levar para a corrida" width="100%">
+
+| | |
+|---|---|
+| **Programa** | O que fizeste e o que ficou por fazer. |
+| **Simulação de corrida** | O stint mais longo, com média, degradação, consistência e projeção. |
+| **Tempos por volta** | Todas as voltas da sessão, por composto. |
+| **Para a corrida** | Combustível a levar e estratégia provável com os pneus que tens. |
+| **A seguir** | A sessão seguinte e o programa que te espera. |
 
 ### 🚨 Alertas
 

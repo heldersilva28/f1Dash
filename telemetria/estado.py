@@ -249,6 +249,7 @@ class Sessao:
         self.bandeira_vermelha = False   # o jogo avisa com eventos: RDFL (vermelha) e LGOT (nova partida)
         self.fim_sessao = False          # evento SEND, ou o teu resultado final na corrida
         self.classificacao = None        # pacote de classificação final (fim da corrida)
+        self.posicoes_voltas = {}        # volta -> posição de cada carro no início dessa volta (pacote do jogo)
         self.perda_box_guardada = None
         # mini-setores de todos os carros
         self.mini_atual = {}         # carro -> {idx: tempo acumulado}
@@ -261,6 +262,7 @@ class Sessao:
         self.conjuntos = None
         self.conjunto_montado = None
         self.avisos_limites = (0, 0.0)   # (quantos, quando mudou) — para mostrar o aviso durante uns segundos
+        self.minhas_posicoes = {}        # volta -> a tua posição ao começar essa volta (se o jogo não mandar as posições)
         self.minha_volta = None
         self.inicio_volta = {}      # combustível e desgaste no início da volta atual
         self.consumos = deque(maxlen=10)
@@ -340,6 +342,9 @@ class Sessao:
             elif nome == 'classificacao':
                 self.classificacao = c
                 self.fim_sessao = True
+            elif nome == 'posicoes_voltas':
+                for k, linha in enumerate(c['voltas']):
+                    self.posicoes_voltas[c['inicio'] + k + 1] = linha
 
     # ------------------------------------------------------------ ajudas
     def _cod(self, i):
@@ -439,15 +444,19 @@ class Sessao:
             return completas, 'distância completa'
         return None, ''
 
-    def _proxima_sessao(self):
-        """A sessão seguinte do fim de semana, pela estrutura que o jogo envia."""
+    def _proxima_tipo(self):
         s = self.sessao or {}
         fds = s.get('fim_de_semana') or []
         if s.get('tipo') in fds:
             k = fds.index(s['tipo'])
             if k + 1 < len(fds):
-                return SESSOES.get(fds[k + 1])
+                return fds[k + 1]
         return None
+
+    def _proxima_sessao(self):
+        """A sessão seguinte do fim de semana, pela estrutura que o jogo envia."""
+        t = self._proxima_tipo()
+        return SESSOES.get(t) if t else None
 
     # ------------------------------------------------------------ medições guardadas por circuito
     def _guardar_medicoes(self):
@@ -582,6 +591,8 @@ class Sessao:
             # flashback a meio da volta: os pontos à frente vão ser percorridos outra vez
             b = int(d // 10)
             self.traco_atual = {k: t for k, t in self.traco_atual.items() if k <= b}
+        if v['posicao'] and v['volta'] not in self.minhas_posicoes:
+            self.minhas_posicoes[v['volta']] = v['posicao']
         if self.minha_volta is None:
             self.minha_volta = v['volta']
             self._marcar_inicio_volta()
@@ -724,63 +735,212 @@ class Sessao:
 
     RESULTADOS = {3: 'Terminou', 4: 'Não terminou', 5: 'Desclassificado', 6: 'Não classificado', 7: 'Desistiu'}
 
-    def _resumo(self, out):
-        """Resumo da sessão que acabou, com o que o jogo enviou (classificação final, histórico de voltas)."""
-        j, s, eu = self.jogador, self.sessao, out['eu']
+    def _voltas_resumo(self, j):
+        """Todas as voltas do histórico do jogo, com o composto, setores e se foi de entrada/saída das boxes."""
         h = self.historico.get(j)
-        voltas = [v for v in (h['voltas'] if h else []) if v['tempo']]
-        stints, inicio = [], 1
-        for st in (h['stints'] if h else []):
-            fim = st['fim'] if st['fim'] != 255 else len(h['voltas'])
-            stints.append({'composto': COMPOSTOS.get(st['visual'], '?'), 'voltas': max(fim - inicio + 1, 0)})
+        if not h:
+            return [], []
+        voltas, lista, stints, inicio = h['voltas'], [], [], 1
+        for k, st in enumerate(h['stints']):
+            fim = st['fim'] if st['fim'] != 255 else len(voltas)
+            fim = min(fim, len(voltas))
+            comp = COMPOSTOS.get(st['visual'], '?')
+            tempos = []
+            for n in range(inicio, fim + 1):
+                v = voltas[n - 1]
+                if not v['tempo']:
+                    continue
+                box = 'saida' if n == inicio and (k > 0 or self.sessao['tipo'] < 15) else \
+                      'entrada' if n == fim and st['fim'] != 255 else None
+                lista.append({'n': n, 'ms': v['tempo'], 's': [v['s1'], v['s2'], v['s3']], 'valida': v['valida'],
+                              'composto': comp, 'box': box})
+                if v['valida'] and not box and n > 1:
+                    tempos.append(v['tempo'])
+            stints.append({'composto': comp, 'voltas': max(fim - inicio + 1, 0), 'ate_volta': fim,
+                           'media_ms': int(media(tempos)) if tempos else None, 'melhor_ms': min(tempos) if tempos else None})
             inicio = fim + 1
+        return lista, stints
+
+    def _resumo(self, out):
+        """Resumo da sessão que acabou, com o que o jogo enviou (classificação final, posições, histórico de voltas)."""
+        j, s, eu = self.jogador, self.sessao, out['eu']
+        lista, stints = self._voltas_resumo(j)
         r = {'sessao': SESSOES.get(s['tipo'], 'Sessão'), 'ecra': out['ecra'], 'proxima': self._proxima_sessao(),
-             'posicao': eu['pos'], 'melhor_ms': eu.get('melhor_ms'), 'voltas': len(voltas), 'stints': stints,
-             'consumo_volta': eu.get('consumo_volta'), 'desgaste_volta': eu.get('desgaste_volta')}
+             'posicao': eu['pos'], 'melhor_ms': eu.get('melhor_ms'), 'voltas': len(lista), 'stints': stints,
+             'voltas_lista': lista, 'consumo_volta': eu.get('consumo_volta'), 'desgaste_volta': eu.get('desgaste_volta'),
+             'cor': eu.get('cor'), 'speed_trap': eu.get('speed_trap')}
         vr = out.get('volta_rapida')
         if vr:
             r['mais_rapida'] = {'codigo': vr['codigo'], 'ms': vr['ms']}
         if out['ecra'] == 'corrida':
-            r.update({'grelha': eu.get('grelha'), 'paragens': eu.get('paragens'),
-                      'resultado': self.RESULTADOS.get(self.voltas[j]['resultado'], '')})
-            fc = self.classificacao
-            if fc and j < len(fc) and fc[j]['posicao']:
-                c = fc[j]
-                r.update({'posicao': c['posicao'], 'grelha': c['grelha'], 'pontos': c['pontos'],
-                          'paragens': c['paragens'], 'tempo_total_s': round(c['tempo_total'], 3),
-                          'penalizacoes_s': c['penalizacoes_s'], 'resultado': self.RESULTADOS.get(c['resultado'], ''),
-                          'melhor_ms': c['melhor_ms'] or r['melhor_ms'], 'voltas': c['voltas'],
-                          'fonte': 'classificação final do jogo'})
-                tabela = sorted((k for k, x in enumerate(fc) if x['posicao']), key=lambda k: fc[k]['posicao'])
-                r['tabela'] = [{'pos': fc[k]['posicao'], 'codigo': self._cod(k), 'cor': self._cor(k),
-                                'pontos': fc[k]['pontos'], 'eu': k == j} for k in tabela if fc[k]['posicao'] <= 10 or k == j]
-                fim_ant, r['stints'] = 0, []
-                for st in c['stints']:
-                    r['stints'].append({'composto': COMPOSTOS.get(st['visual'], '?'), 'voltas': st['fim'] - fim_ant})
-                    fim_ant = st['fim']
-                vencedor = next((k for k, x in enumerate(fc) if x['posicao'] == 1), None)
-                if vencedor is not None and vencedor != j and fc[vencedor]['tempo_total'] and c['tempo_total'] \
-                        and c['voltas'] == fc[vencedor]['voltas']:
-                    r['para_vencedor_s'] = round(c['tempo_total'] - fc[vencedor]['tempo_total'], 3)
+            self._resumo_corrida(r, out)
         elif out['ecra'] == 'qualificacao':
-            q = out.get('quali') or {}
-            ordem = q.get('ordem') or []
-            if j in ordem:
-                r['posicao'] = ordem.index(j) + 1
-            if q.get('pole_ms') and r['melhor_ms']:
-                r['para_pole_ms'] = r['melhor_ms'] - q['pole_ms']
-            if q.get('corte'):
-                r['passou'] = r['posicao'] <= q['corte']
-                r['corte'] = q['corte']
+            self._resumo_quali(r, out)
         else:
-            t = out.get('treinos') or {}
-            prog = t.get('programa') or []
-            r['programa'] = {'feitas': sum(1 for p in prog if p['feito']), 'total': len(prog),
-                             'falta': [p['nome'] for p in prog if not p['feito']]}
-            if t.get('longo'):
-                r['ritmo'] = {'media_ms': t['longo']['media_ms'], 'degradacao_ms': t['longo']['degradacao_ms']}
-            r['plano_corrida'] = t.get('plano_corrida')
+            self._resumo_treinos(r, out)
         return r
+
+    def _resumo_corrida(self, r, out):
+        j, eu = self.jogador, out['eu']
+        r.update({'grelha': eu.get('grelha'), 'paragens': eu.get('paragens'),
+                  'resultado': self.RESULTADOS.get(self.voltas[j]['resultado'], ''), 'fonte': 'histórico do jogo'})
+        fc = self.classificacao
+        tabela = []
+        if fc and j < len(fc) and fc[j]['posicao']:
+            c = fc[j]
+            r.update({'posicao': c['posicao'], 'grelha': c['grelha'], 'pontos': c['pontos'],
+                      'paragens': c['paragens'], 'tempo_total_s': round(c['tempo_total'], 3),
+                      'penalizacoes_s': c['penalizacoes_s'], 'n_penalizacoes': c['n_penalizacoes'],
+                      'resultado': self.RESULTADOS.get(c['resultado'], ''),
+                      'melhor_ms': c['melhor_ms'] or r['melhor_ms'], 'voltas': c['voltas'],
+                      'fonte': 'classificação final do jogo'})
+            ordem = sorted((k for k, x in enumerate(fc) if x['posicao']), key=lambda k: fc[k]['posicao'])
+            venc = fc[ordem[0]] if ordem else None
+            melhores = sorted(x['melhor_ms'] for x in fc if x['posicao'] and x['melhor_ms'])
+            for k in ordem:
+                x = fc[k]
+                if x['resultado'] in (4, 5, 6, 7):
+                    dif = {4: 'DNF', 5: 'DSQ', 6: 'NC', 7: 'Desistiu'}[x['resultado']]
+                elif k == ordem[0]:
+                    dif = fmt_tempo_total(x['tempo_total'])
+                elif venc and x['voltas'] < venc['voltas']:
+                    dif = f"+{venc['voltas'] - x['voltas']} V"
+                else:
+                    dif = f"+{x['tempo_total'] - venc['tempo_total']:.3f}"
+                tabela.append({'pos': x['posicao'], 'codigo': self._cod(k), 'cor': self._cor(k), 'eu': k == j,
+                               'pontos': x['pontos'], 'paragens': x['paragens'], 'dif': dif, 'grelha': x['grelha'],
+                               'compostos': [COMPOSTOS.get(st['visual'], '?') for st in x['stints']],
+                               'melhor_ms': x['melhor_ms'], 'volta_rapida': bool(melhores) and x['melhor_ms'] == melhores[0]})
+            if c['stints']:
+                # os stints da classificação final (com as voltas em que paraste) mandam sobre o histórico
+                fim_ant, novos = 0, []
+                for st in c['stints']:
+                    tempos = [v['ms'] for v in r['voltas_lista']
+                              if fim_ant < v['n'] <= st['fim'] and v['valida'] and not v['box'] and v['n'] > 1]
+                    novos.append({'composto': COMPOSTOS.get(st['visual'], '?'), 'voltas': st['fim'] - fim_ant,
+                                  'ate_volta': st['fim'], 'media_ms': int(media(tempos)) if tempos else None,
+                                  'melhor_ms': min(tempos) if tempos else None})
+                    fim_ant = st['fim']
+                r['stints'] = novos
+            if venc and ordem[0] != j and venc['tempo_total'] and c['tempo_total'] and c['voltas'] == venc['voltas']:
+                r['para_vencedor_s'] = round(c['tempo_total'] - venc['tempo_total'], 3)
+            if c['melhor_ms'] and melhores:
+                r['melhor_rank'] = melhores.index(c['melhor_ms']) + 1
+        else:
+            for c in out['carros']:
+                tabela.append({'pos': c['pos'], 'codigo': c['codigo'], 'cor': c['cor'], 'eu': c['eu'], 'pontos': None,
+                               'paragens': c['paragens'], 'dif': '', 'grelha': c['grelha'], 'compostos': [c['composto']],
+                               'melhor_ms': c['melhor_ms'], 'volta_rapida': False})
+        r['tabela'] = tabela
+        r['n_carros'] = len(tabela) or len(out['carros'])
+        r['ganhos'] = (r['grelha'] or 0) - r['posicao'] if r.get('grelha') else None
+        # posição volta a volta: o pacote do jogo, ou o que o painel foi vendo
+        if self.posicoes_voltas:
+            pos = {v: linha[j] for v, linha in self.posicoes_voltas.items() if j < len(linha) and linha[j]}
+        else:
+            pos = dict(self.minhas_posicoes)
+        if r.get('grelha'):
+            pos.setdefault(1, r['grelha'])
+        if pos:
+            pos[max(max(pos) + 1, r.get('voltas') or 0)] = r['posicao']     # posição final, depois da bandeira
+        r['posicoes'] = [{'volta': v, 'pos': p} for v, p in sorted(pos.items())]
+        r['box_voltas'] = [st['ate_volta'] for st in r['stints'][:-1]]
+        r['ritmos'] = self._ritmos_corrida()
+
+    def _ritmos_corrida(self):
+        """Ritmo de corrida de cada piloto: mediana das voltas limpas (sem a 1.ª, nem entradas/saídas das boxes),
+        do histórico de voltas que o jogo envia para todos os carros."""
+        lista = []
+        for i, h in self.historico.items():
+            excluir = {1}
+            for st in h['stints'][:-1]:
+                if st['fim'] and st['fim'] != 255:
+                    excluir |= {st['fim'], st['fim'] + 1}
+            tempos = sorted(v['tempo'] for k, v in enumerate(h['voltas'], start=1)
+                            if v['tempo'] and v['valida'] and k not in excluir)
+            if len(tempos) >= 3:
+                lista.append({'idx': i, 'codigo': self._cod(i), 'cor': self._cor(i), 'eu': i == self.jogador,
+                              'ms': tempos[len(tempos) // 2]})
+        lista.sort(key=lambda x: x['ms'])
+        for k, x in enumerate(lista):
+            x['rank'] = k + 1
+        return [x for x in lista if x['rank'] <= 6 or x['eu']]
+
+    def _resumo_quali(self, r, out):
+        j = self.jogador
+        q = out.get('quali') or {}
+        porIdx = {c['idx']: c for c in out['carros']}
+        ordem = [porIdx[i] for i in q.get('ordem') or [] if i in porIdx]
+        if j in (q.get('ordem') or []):
+            r['posicao'] = q['ordem'].index(j) + 1
+        pole = ordem[0] if ordem else None
+        if pole and pole['melhor_ms']:
+            r['pole'] = {'codigo': pole['codigo'], 'ms': pole['melhor_ms']}
+            if r['melhor_ms']:
+                r['para_pole_ms'] = r['melhor_ms'] - pole['melhor_ms']
+        if q.get('corte'):
+            r['passou'] = r['posicao'] <= q['corte']
+            r['corte'] = q['corte']
+        r['ideal_ms'] = q.get('ideal_ms')
+        meus = self._meus_melhores_setores(j)
+        sessao = self._melhores_setores_sessao()
+        r['setores'] = [{'meu': meus[k], 'melhor': sessao[k]} for k in range(3)]
+        r['conjuntos'] = q.get('conjuntos') or []
+        r['tabela'] = [{'pos': k + 1, 'codigo': c['codigo'], 'cor': c['cor'], 'eu': c['eu'], 'melhor_ms': c['melhor_ms'],
+                        'dif_ms': c['melhor_ms'] - pole['melhor_ms'] if c['melhor_ms'] and pole and pole['melhor_ms'] else None,
+                        'fora': bool(q.get('corte')) and k >= q['corte']} for k, c in enumerate(ordem)]
+        r['tentativas'] = sum(1 for v in r['voltas_lista'] if not v['box'])
+        # onde perdeste tempo: a tua melhor volta, setor a setor, contra a da pole e a do carro à tua frente
+        meus = self._setores_melhor_volta(j)
+        r['comparacao'] = []
+        if meus and r['posicao'] > 1:
+            rivais = [ordem[0]] + ([ordem[r['posicao'] - 2]] if r['posicao'] > 2 else [])
+            for c in rivais:
+                deles = self._setores_melhor_volta(c['idx'])
+                if deles:
+                    r['comparacao'].append({'codigo': c['codigo'], 'cor': c['cor'], 'pos': ordem.index(c) + 1,
+                                            'total_ms': sum(meus) - sum(deles),
+                                            'setores_ms': [a - b for a, b in zip(meus, deles)]})
+
+    def _setores_melhor_volta(self, i):
+        h = self.historico.get(i)
+        if not h or not h['melhor_volta'] or h['melhor_volta'] > len(h['voltas']):
+            return None
+        v = h['voltas'][h['melhor_volta'] - 1]
+        return [v['s1'], v['s2'], v['s3']] if v['tempo'] and all((v['s1'], v['s2'], v['s3'])) else None
+
+    def _resumo_treinos(self, r, out):
+        t = out.get('treinos') or {}
+        prog = t.get('programa') or []
+        r['programa'] = {'feitas': sum(1 for p in prog if p['feito']), 'total': len(prog),
+                         'falta': [p['nome'] for p in prog if not p['feito']], 'tarefas': prog}
+        # a simulação de corrida é o stint com mais voltas limpas seguidas (não necessariamente o último)
+        melhor_run = []
+        fim_ant = 0
+        for st in r['stints']:
+            run = [v for v in r['voltas_lista'] if fim_ant < v['n'] <= st['ate_volta'] and v['valida'] and not v['box']]
+            if len(run) > len(melhor_run):
+                melhor_run = run
+            fim_ant = st['ate_volta']
+        if len(melhor_run) >= 3:
+            tempos = [v['ms'] for v in melhor_run]
+            deg = regressao(tempos)
+            r['ritmo'] = {'media_ms': int(media(tempos)), 'degradacao_ms': round(deg), 'voltas': tempos,
+                          'consistencia_ms': round(desvio(tempos)), 'composto': melhor_run[0]['composto'],
+                          'de_volta': melhor_run[0]['n'], 'projecao': [int(tempos[-1] + deg * (k + 1)) for k in range(3)]}
+        prox = self._proxima_tipo()
+        if prox and 1 <= prox <= 4:
+            r['proxima_programa'] = [self.TAREFAS[k] for k in self._tarefas_do_treino(prox)]
+        r['setores'] = t.get('setores') or []
+        r['plano_corrida'] = t.get('plano_corrida')
+        vc, fonte = self.voltas_corrida()
+        if r['consumo_volta'] and vc:
+            r['combustivel_corrida'] = {'kg': round(r['consumo_volta'] * (vc + 1), 1), 'voltas': vc, 'fonte': fonte}
+        tabela = sorted((c for c in out['carros'] if c['melhor_ms']), key=lambda c: c['melhor_ms'])
+        melhor = tabela[0]['melhor_ms'] if tabela else None
+        linhas = [{'pos': k + 1, 'codigo': c['codigo'], 'cor': c['cor'], 'eu': c['eu'], 'melhor_ms': c['melhor_ms'],
+                   'dif_ms': c['melhor_ms'] - melhor} for k, c in enumerate(tabela)]
+        r['tabela'] = [x for x in linhas if x['pos'] <= 10 or x['eu']]
 
     def _amarela_a_frente(self):
         """Metros até à próxima zona com bandeira amarela (0 se já estás dentro dela), pelas zonas dos comissários."""
@@ -1347,24 +1507,24 @@ class Sessao:
         t_corr8 = _tarefa('Simulação de corrida', min(maior_run, 8), 8, 'voltas seguidas')
         t_corr5 = _tarefa('Confirmar ritmo de corrida', min(maior_run, 5), 5, 'voltas seguidas')
         t_cons = _tarefa('Medir o consumo de combustível', min(consumos, 2), 2, 'voltas medidas')
+        tarefas = {'reco': t_reco, 'comp': t_comp, 'desg': t_desg, 'quali': t_quali, 'corr8': t_corr8,
+                   'corr5': t_corr5, 'cons': t_cons}
+        return [tarefas[k] for k in self._tarefas_do_treino(tipo)]
+
+    TAREFAS = {'reco': 'Reconhecimento da pista', 'comp': 'Testar os 3 compostos', 'desg': 'Medir o desgaste dos pneus',
+               'quali': 'Simulação de qualificação', 'corr8': 'Simulação de corrida (8 voltas)',
+               'corr5': 'Confirmar ritmo de corrida (5 voltas)', 'cons': 'Medir o consumo de combustível'}
+
+    def _tarefas_do_treino(self, tipo):
+        """Programa de cada treino, pelo tipo e pela estrutura do fim de semana que o jogo envia."""
         treinos = [t for t in self.sessao.get('fim_de_semana') or [] if 1 <= t <= 4]
         if tipo in treinos and len(treinos) <= 2:
             # fim de semana com só 1 ou 2 treinos (por exemplo com sprint): o programa encolhe
             if len(treinos) == 1:
-                lista = [t_reco, t_quali, t_corr8, t_cons]
-            elif treinos.index(tipo) == 0:
-                lista = [t_reco, t_comp, t_desg]
-            else:
-                lista = [t_quali, t_corr8, t_cons]
-        elif tipo == 1:
-            lista = [t_reco, t_comp, t_desg]
-        elif tipo == 2:
-            lista = [t_quali, t_corr8, t_cons]
-        elif tipo == 3:
-            lista = [t_quali, t_corr5, t_desg]
-        else:
-            lista = [t_reco, t_quali, t_corr8, t_cons]
-        return lista
+                return ['reco', 'quali', 'corr8', 'cons']
+            return ['reco', 'comp', 'desg'] if treinos.index(tipo) == 0 else ['quali', 'corr8', 'cons']
+        return {1: ['reco', 'comp', 'desg'], 2: ['quali', 'corr8', 'cons'], 3: ['quali', 'corr5', 'desg']}.get(
+            tipo, ['reco', 'quali', 'corr8', 'cons'])
 
     def _treinos(self, carros):
         j = self.jogador
@@ -1438,6 +1598,13 @@ def _tarefa(nome, feito_qtd, alvo, unidade, extra=''):
     else:
         det = f'{feito_qtd} de {alvo} {unidade}' + (f' · {extra}' if extra else '')
     return {'nome': nome, 'detalhe': det, 'progresso': min(feito_qtd / alvo, 1) if alvo else 1, 'feito': feito}
+
+
+def fmt_tempo_total(seg):
+    seg = float(seg)
+    h, resto = divmod(seg, 3600)
+    m, sg = divmod(resto, 60)
+    return (f'{int(h)}:{int(m):02d}:{sg:06.3f}' if h else f'{int(m)}:{sg:06.3f}')
 
 
 def fmt_volta(ms):

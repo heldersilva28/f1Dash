@@ -67,6 +67,8 @@ class Carro:
         self.plano = []              # qualificação/treinos: lista de (tipo_volta)
         self.na_garagem_ate = 0.0
         self.speed_trap = 0.0
+        self.terminou = False        # corrida: cortou a meta depois do líder (o jogo passa o resultado a "terminou")
+        self.t_fim = None
 
     @property
     def dist_volta(self):
@@ -88,6 +90,9 @@ class Simulador:
         self.hist_idx = 0
         self.rng = random.Random(7)
         self.desgaste = [0.0] * 4
+        self.bandeira_xadrez = False
+        self.pos_voltas = {}         # volta -> posição de cada carro ao começar essa volta (pacote de posições)
+        self.fim_enviado = 0         # quantas vezes já mandou a classificação final (o jogo repete-a)
         self.taxa_desgaste = [1.4, 1.6, 1.9, 2.3]   # TE, TD, FE, FD (% por volta)
         self.combustivel = 70.0
         if modo == 'corrida':
@@ -166,6 +171,8 @@ class Simulador:
         for c in self.carros:
             if not c.ativo:
                 continue
+            if c.terminou:
+                continue                    # depois da bandeira de xadrez o carro fica parado
             if self.t < c.box_ate:
                 c.t_volta += dt * 1000      # parado na box: o cronómetro da volta continua (como no jogo)
                 continue
@@ -224,6 +231,17 @@ class Simulador:
         c.idade += 1
         c.t_volta = 0
         c.s1 = c.s2 = 0
+        if self.modo == 'corrida':
+            if c.volta - 1 >= VOLTAS_CORRIDA or self.bandeira_xadrez:
+                if not self.bandeira_xadrez:
+                    self.bandeira_xadrez = True
+                    self.eventos.append(b'CHQF'.ljust(16, b'\x00'))
+                c.terminou, c.t_fim = True, self.t
+                c.volta -= 1                # o jogo não começa outra volta depois da meta
+                return
+            ordem = self._ordem()
+            linha = self.pos_voltas.setdefault(c.volta, [0] * N)
+            linha[c.i] = next(k for k, x in enumerate(ordem) if x is c) + 1
         c.invalida = self.rng.random() < 0.04 and self.modo != 'corrida'
         if self.modo == 'corrida':
             if c.plano_box and c.volta - 1 == c.plano_box[0]:
@@ -263,7 +281,7 @@ class Simulador:
     def _ordem(self):
         ativos = [c for c in self.carros if c.ativo]
         if self.modo == 'corrida':
-            return sorted(ativos, key=lambda c: -c.dist_total)
+            return sorted(ativos, key=lambda c: (0, c.t_fim) if c.terminou else (1, -c.dist_total))
 
         def melhor(c):
             t = [h[0] for h in c.historico if h[4] and h[0] < c.base * 1.1]
@@ -300,7 +318,7 @@ class Simulador:
                 g_frente % 60000, g_frente // 60000, g_lider % 60000, g_lider // 60000,
                 float(c.dist_volta if c.volta >= 1 else c.dist_total), float(c.dist_total), 0.0,
                 k, max(c.volta, 1), 2 if na_box else 0, c.paragens, 0 if c.dist_volta < S2 else 1 if c.dist_volta < S3 else 2,
-                int(c.invalida), c.penal, 0, 0, 0, 0, c.grelha, c.estado_piloto, 2, 1 if na_box else 0,
+                int(c.invalida), c.penal, 0, 0, 0, 0, c.grelha, c.estado_piloto, 3 if c.terminou else 2, 1 if na_box else 0,
                 0, 0, 0, float(c.speed_trap), 255)
         b += bytes([255, 255])
         out.append(bytes(b))
@@ -344,10 +362,49 @@ class Simulador:
         if self.frame % 40 == 0:
             out.append(self._participantes(t, f))
             out.append(self._conjuntos(t, f))
+        if self.modo == 'corrida' and self.frame % 20 == 0 and self.pos_voltas:
+            out.append(self._posicoes_voltas(t, f))
+        fim = self.modo == 'corrida' and all(c.terminou for c in self.carros if c.ativo)
+        if self.modo != 'corrida' and self.t >= self.duracao and not self.fim_enviado:
+            self.eventos.append(b'SEND'.ljust(16, b'\x00'))
+            self.fim_enviado = 1
+        if fim and self.fim_enviado < 5 and self.frame % 20 == 0:
+            out.append(self._classificacao(t, f))          # o jogo manda a classificação final várias vezes
+            if not self.fim_enviado:
+                self.eventos.append(b'SEND'.ljust(16, b'\x00'))
+            self.fim_enviado += 1
         for e in self.eventos:
             out.append(cab(3, t, f) + e)
         self.eventos = []
         return out
+
+    PONTOS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+
+    def _posicoes_voltas(self, t, f):
+        voltas = sorted(self.pos_voltas)[:50]
+        b = bytearray(cab(15, t, f)) + bytes([len(voltas), 0])
+        for k in range(50):
+            b += bytes(self.pos_voltas[voltas[k]]) if k < len(voltas) else bytes(N)
+        return bytes(b)
+
+    def _classificacao(self, t, f):
+        ordem = self._ordem()
+        b = bytearray(cab(8, t, f)) + bytes([len(ordem)])
+        for c in self.carros:
+            if not c.ativo:
+                b += P.CLASSIFICACAO.pack(*([0] * 7), 0, 0.0, 0, 0, 0, *([0] * 24))
+                continue
+            pos = ordem.index(c) + 1
+            stints = c.stints + [(c.volta, c.composto)]
+            melhor = min((h[0] for h in c.historico if h[4]), default=0)
+            reais = [{16: 17, 17: 18, 18: 19}.get(comp, 18) for _, comp in stints][:8]
+            visuais = [comp for _, comp in stints][:8]
+            fins = [fim for fim, _ in stints][:8]
+            completa = lambda xs: xs + [0] * (8 - len(xs))
+            b += P.CLASSIFICACAO.pack(pos, c.volta, c.grelha, self.PONTOS[pos - 1] if pos <= 10 else 0, c.paragens, 3, 0,
+                                      melhor, float(c.t_fim or self.t), c.penal, 1 if c.penal else 0, len(stints),
+                                      *completa(reais), *completa(visuais), *completa(fins))
+        return bytes(b)
 
     def _historico(self, c, t, f):
         b = bytearray(cab(11, t, f))

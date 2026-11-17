@@ -67,6 +67,9 @@ def tamanho_esperado(fmt, pid):
         return h + 7 + 100 * HIST_VOLTA.size + 8 * HIST_STINT.size
     if pid == 12:
         return h + 1 + 20 * CONJ_PNEUS.size + 1
+    if pid == 15:
+        # posição de cada carro no início de cada volta (até 50 voltas por pacote); no formato 2026 não confirmado
+        return h + 2 + 50 * n
     if pid == 16:
         return h + n * TELEMETRIA2.size
     return None
@@ -184,6 +187,14 @@ def ler_evento(dados):
     elif codigo in ('DTSV', 'SGSV'):
         ev['carro'] = p[0]
     return ev   # SEND (fim da sessão), RDFL (bandeira vermelha), LGOT (luzes apagadas) não trazem dados
+
+
+def ler_posicoes_voltas(dados, fmt):
+    o = CABECALHO.size
+    n_voltas, inicio = dados[o], dados[o + 1]
+    o += 2
+    n = MAX_CARROS[fmt]
+    return {'inicio': inicio, 'voltas': [list(dados[o + k * n:o + (k + 1) * n]) for k in range(min(n_voltas, 50))]}
 
 
 def ler_classificacao(dados, fmt):
@@ -310,7 +321,8 @@ def ler_conjuntos(dados):
 
 
 LEITORES = {1: 'sessao', 2: 'voltas', 3: 'evento', 4: 'participantes', 6: 'telemetria',
-            7: 'estado', 8: 'classificacao', 10: 'danos', 11: 'historico', 12: 'conjuntos', 16: 'telemetria2'}
+            7: 'estado', 8: 'classificacao', 10: 'danos', 11: 'historico', 12: 'conjuntos',
+            15: 'posicoes_voltas', 16: 'telemetria2'}
 
 
 def descodificar(dados):
@@ -345,6 +357,8 @@ def descodificar(dados):
         c = ler_historico(dados)
     elif nome == 'classificacao':
         c = ler_classificacao(dados, fmt)
+    elif nome == 'posicoes_voltas':
+        c = ler_posicoes_voltas(dados, fmt)
     else:
         c = ler_conjuntos(dados)
     return cab, nome, c

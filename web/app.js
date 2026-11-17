@@ -725,51 +725,266 @@ function cartaoPlano(p) {
     <span class="f13 m">Box custa ${p.perda_box_s} s · ${esc(p.perda_box_fonte)}</span></div>`;
 }
 
-function itensResumo(d) {
-  const r = d.resumo, eu = d.eu;
-  const itens = [];
-  let sub = '';
-  if (r.ecra === 'corrida') {
-    const ganho = (r.grelha || 0) - r.posicao;
-    sub = `Partida P${r.grelha || '—'} · <b style="color:${ganho >= 0 ? '#3DDC84' : '#FF4D4D'}">${ganho >= 0 ? '+' : '−'}${Math.abs(ganho)}</b>${r.resultado && r.resultado !== 'Terminou' ? ' · ' + esc(r.resultado) : ''}`;
-  } else if (r.ecra === 'qualificacao') {
-    sub = r.corte ? (r.passou ? `<span class="c-verde">Passaste o corte (top ${r.corte})</span>` : `<span class="c-verm2">Eliminado (corte em P${r.corte})</span>`) : 'Posição de partida';
-  } else sub = 'Na tabela da sessão';
-  itens.push(['Posição final', `<span class="k-grande" style="color:${eu.cor}">P${r.posicao}</span><span class="f18 m">${sub}</span>`]);
-  itens.push(['Melhor volta', `<span class="f40 fw7 c-verde">${fmtV(r.melhor_ms)}</span>
-    <span class="f16 m">${r.mais_rapida ? `Mais rápida: ${esc(r.mais_rapida.codigo)} ${fmtV(r.mais_rapida.ms)}` : ''}${r.para_pole_ms != null ? ` · pole ${fmtD(r.para_pole_ms)}` : ''}</span>`]);
-  if (r.ecra === 'corrida') {
-    itens.push(['Pontos', `<span class="f56 fw7">${r.pontos ?? '—'}</span><span class="f16 m">${r.tempo_total_s ? 'Tempo total ' + fmtV(r.tempo_total_s * 1000) : ''}${r.para_vencedor_s ? ` · +${r.para_vencedor_s.toFixed(3)} s do vencedor` : ''}</span>`]);
-    itens.push(['Paragens e penalizações', `<span class="f40 fw7">${r.paragens ?? 0} ${r.paragens === 1 ? 'paragem' : 'paragens'}</span><span class="f16 m">${r.penalizacoes_s ? `+${r.penalizacoes_s} s de penalização` : 'Sem penalizações'}</span>`]);
-  }
-  if (r.stints && r.stints.length) itens.push(['Stints', `${barraStints(r.stints)}<span class="f16 m">${r.voltas} voltas</span>`]);
-  if (r.tabela && r.tabela.length) {
-    itens.push(['Classificação', `<div class="col g2 cresce">${r.tabela.map((c) => `<div class="k-fila${c.eu ? ' eu' : ''}" style="height:28px;${c.eu ? `background:${c.cor}33` : ''}">
-      <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span>${esc(c.codigo)}</span><span class="tr">${c.pontos} pts</span><span></span></div>`).join('')}</div>`, ' data-alto']);
-  }
-  if (r.programa) {
-    itens.push(['Programa', `<span class="f40 fw7${r.programa.feitas === r.programa.total ? ' c-verde' : ''}">${r.programa.feitas} de ${r.programa.total}</span>
-      <span class="f16 m">${r.programa.falta.length ? 'Ficou por fazer: ' + r.programa.falta.map(esc).join(', ') : 'Tudo feito'}</span>`]);
-  }
-  if (r.ritmo) itens.push(['Ritmo de corrida', `<span class="f40 fw7">${fmtV(r.ritmo.media_ms)}</span><span class="f16 c-ambar fw6">${fmtD(r.ritmo.degradacao_ms)} s por volta</span>`]);
-  if (r.consumo_volta || r.desgaste_volta) {
-    itens.push(['Medições guardadas', `${r.consumo_volta ? kLinha('Consumo', r.consumo_volta.toFixed(2) + ' kg/volta') : ''}
-      ${r.desgaste_volta ? kLinha('Desgaste (pior pneu)', Math.max(...r.desgaste_volta).toFixed(1) + '%/volta') : ''}
-      <span class="f14 m">Ficam para as próximas sessões neste circuito</span>`]);
-  }
-  if (r.plano_corrida) itens.push(['Estratégia provável para a corrida', `<span class="f24 fw7">${esc(textoStints(r.plano_corrida))}</span><span class="f15 m">${esc(textoPlano(r.plano_corrida))}</span>`]);
-  if (r.proxima) itens.push(['A seguir', `<span class="f40 fw7" style="color:${eu.cor}">${esc(r.proxima)}</span>`]);
-  return itens;
+// ---- gráficos do resumo (SVG): posição volta a volta e tempos por volta
+const ordinal = (n) => `${n}.ª`;
+function svgPosicoes(pontos, n, box, w, h, cor) {
+  if (!pontos || pontos.length < 2) return '<div class="f15 m" style="margin:auto">Sem posições volta a volta</div>';
+  const pl = 46, pr = 54, pt = 12, pb = 26;
+  const v0 = pontos[0].volta, v1 = pontos[pontos.length - 1].volta;
+  const X = (v) => (pl + (v - v0) / Math.max(v1 - v0, 1) * (w - pl - pr)).toFixed(1);
+  const Y = (p) => (pt + (p - 1) / Math.max(n - 1, 1) * (h - pt - pb)).toFixed(1);
+  const marcas = [1, 5, 10, 15, 20, 24].filter((p) => p <= n);
+  const grelha = marcas.map((p) => `<line x1="${pl}" x2="${w - pr}" y1="${Y(p)}" y2="${Y(p)}" stroke="#232B35"></line>
+    <text x="${pl - 10}" y="${+Y(p) + 5}" text-anchor="end" font-size="14" fill="#98A2B3">P${p}</text>`).join('');
+  const passo = v1 - v0 > 30 ? 10 : 5;
+  const eixo = [];
+  for (let v = Math.ceil(v0 / passo) * passo; v <= v1; v += passo) eixo.push(`<text x="${X(v)}" y="${h - 6}" text-anchor="middle" font-size="13" fill="#98A2B3">V${v}</text>`);
+  const boxes = (box || []).filter((b) => b >= v0 && b < v1).map((b) => `<line x1="${X(b + 1)}" x2="${X(b + 1)}" y1="${pt}" y2="${h - pb}" stroke="#4DA3FF" stroke-dasharray="4 5"></line>
+    <text x="${+X(b + 1) + 5}" y="${pt + 12}" font-size="13" fill="#4DA3FF">Box V${b}</text>`).join('');
+  let d = `M${X(pontos[0].volta)},${Y(pontos[0].pos)}`;
+  for (let k = 1; k < pontos.length; k++) d += ` H${X(pontos[k].volta)} V${Y(pontos[k].pos)}`;
+  const ult = pontos[pontos.length - 1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Posição em cada volta">${grelha}${eixo.join('')}${boxes}
+    <path d="${d}" fill="none" stroke="${cor}" stroke-width="3.5" stroke-linejoin="round"></path>
+    <circle cx="${X(pontos[0].volta)}" cy="${Y(pontos[0].pos)}" r="5" fill="${cor}"></circle>
+    <circle cx="${X(ult.volta)}" cy="${Y(ult.pos)}" r="6" fill="${cor}"></circle>
+    <text x="${+X(ult.volta) + 12}" y="${+Y(ult.pos) + 7}" font-size="20" font-weight="700" fill="${cor}">P${ult.pos}</text></svg>`;
 }
+function svgVoltas(voltas, w, h, projecao = []) {
+  const limpos = voltas.filter((v) => v.valida && !v.box).map((v) => v.ms).sort((a, b) => a - b);
+  if (limpos.length < 2) return '<div class="f15 m" style="margin:auto">Poucas voltas para mostrar</div>';
+  const mediana = limpos[Math.floor(limpos.length / 2)];
+  const todos = limpos.concat(projecao);
+  const lo = Math.min(...todos) - 400, hi = Math.max(Math.max(...todos), mediana + 1200) + 200;
+  const pl = 70, pr = 6, pt = 8, pb = 24, ph = h - pt - pb;
+  const barras = voltas.map((v) => ({ ...v })).concat(projecao.map((ms, k) => ({ ms, proj: true, n: (voltas.length ? voltas[voltas.length - 1].n : 0) + k + 1 })));
+  const bw = (w - pl - pr) / Math.max(barras.length, 1);
+  const melhor = limpos[0];
+  const corpo = barras.map((v, i) => {
+    const alto = Math.max(4, (Math.min(v.ms, hi) - lo) / (hi - lo) * ph);
+    const x = pl + i * bw + Math.min(2, bw * 0.15), lw = Math.max(bw - 2 * Math.min(2, bw * 0.15), 2), y = pt + ph - alto;
+    const cor = v.proj ? 'none' : (TC[v.composto] || TC['?']);
+    const destaque = !v.proj && v.ms === melhor && v.valida && !v.box;
+    const extra = v.proj ? 'stroke="#98A2B3" stroke-dasharray="4 4" stroke-width="2"' : destaque ? 'stroke="#B57BFF" stroke-width="3"' : '';
+    const op = v.proj ? 1 : !v.valida ? 0.3 : v.box ? 0.45 : 0.9;
+    const corte = v.ms > hi ? `<text x="${x + lw / 2}" y="${pt + 12}" text-anchor="middle" font-size="11" fill="#98A2B3">box</text>` : '';
+    const rot = (barras.length <= 30 || v.n % 5 === 0) ? `<text x="${x + lw / 2}" y="${h - 6}" text-anchor="middle" font-size="12" fill="#98A2B3">${v.n}</text>` : '';
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${lw.toFixed(1)}" height="${alto.toFixed(1)}" rx="2" fill="${cor}" fill-opacity="${op}" ${extra}></rect>${corte}${rot}`;
+  }).join('');
+  const yMelhor = pt + ph - (melhor - lo) / (hi - lo) * ph;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Tempo de cada volta">
+    <line x1="${pl}" x2="${w - pr}" y1="${yMelhor.toFixed(1)}" y2="${yMelhor.toFixed(1)}" stroke="#B57BFF" stroke-dasharray="3 5"></line>
+    <text x="${pl - 8}" y="${(yMelhor + 5).toFixed(1)}" text-anchor="end" font-size="13" fill="#B57BFF">${fmtV(melhor)}</text>
+    <text x="${pl - 8}" y="${pt + 12}" text-anchor="end" font-size="13" fill="#98A2B3">${fmtV(hi)}</text>${corpo}</svg>`;
+}
+function legendaVoltas(voltas, comProjecao) {
+  const comps = [...new Set(voltas.map((v) => v.composto))].filter((c) => TN[c]);
+  return `<div class="row g16 f13 m" style="flex-wrap:wrap">${comps.map((c) => `<span class="row g6"><i class="w10 h10 r2" style="display:inline-block;background:${TC[c]}"></i>${TN[c]}</span>`).join('')}
+    <span class="row g6"><i class="w10 h10 r2" style="display:inline-block;border:2px solid #B57BFF"></i>Melhor</span>
+    <span>Esbatida = inválida ou box</span>${comProjecao ? '<span>Tracejado = projeção</span>' : ''}<span>Barra mais alta = mais lenta</span></div>`;
+}
+
+// ---- peças comuns dos resumos
+const bolas = (lista, t = 18) => `<span class="row g4">${lista.map((c) => pneu(c, t)).join('')}</span>`;
+function heroi(titulo, valor, sub, cor) {
+  return `<div class="p col pd16-20 g4 mw0"><span class="l">${titulo}</span><span class="f44 fw7 lh1" style="color:${cor || '#F2F4F7'}">${valor}</span><span class="f15 m">${sub || '&nbsp;'}</span></div>`;
+}
+function tabelaStints(stints) {
+  if (!stints || !stints.length) return '<span class="m">Sem stints</span>';
+  let ini = 1;
+  return `<div class="g f12 fw6 m" style="grid-template-columns:28px minmax(0,1fr) 36px 76px 76px;gap:8px;letter-spacing:.08em;text-transform:uppercase"><span></span><span>Voltas</span><span class="tr">N.º</span><span class="tr">Média</span><span class="tr">Melhor</span></div>
+  ${stints.map((st) => { const de = ini; ini = (st.ate_volta || de + st.voltas - 1) + 1; return `<div class="g ai-c f17" style="grid-template-columns:28px minmax(0,1fr) 36px 76px 76px;gap:8px;padding:4px 0;border-bottom:1px solid #1B222A">
+    ${pneu(st.composto, 24)}<span class="m" style="white-space:nowrap">V${de}–V${ini - 1}</span><span class="tr fw7">${st.voltas}</span><span class="tr">${fmtV(st.media_ms)}</span><span class="tr">${fmtV(st.melhor_ms)}</span></div>`; }).join('')}`;
+}
+function medicoes(r) {
+  const des = r.desgaste_volta;
+  return `${r.consumo_volta ? kLinha('Consumo', r.consumo_volta.toFixed(2) + ' kg/volta') : ''}
+    ${des ? `<div class="cols2 g8 g">${[2, 3, 0, 1].map((k) => `<div class="cx"><span class="f13 m">${RODA[k]}</span><span class="f22 fw7"${Math.max(...des) === des[k] ? ' style="color:#FFB020"' : ''}>${des[k].toFixed(1)}%<span class="f13 fw5 m"> /volta</span></span></div>`).join('')}</div>` : ''}
+    <span class="f13 m">${r.consumo_volta || des ? 'Guardado para as próximas sessões neste circuito' : 'Sem medições nesta sessão'}</span>`;
+}
+const aSeguir = (r) => (r.proxima ? `<span class="f36 fw7" style="color:${r.cor}">${esc(r.proxima)}</span>` : '<span class="f24 fw7 m">Fim de semana terminado</span>')
+  + (r.proxima_programa ? `<span class="f13 m" style="margin-top:6px">Programa</span>${r.proxima_programa.map((t) => `<span class="row g8 f17"><i class="w8 h8 redondo" style="display:inline-block;background:${r.cor}"></i>${esc(t)}</span>`).join('')}` : '');
+
+// ---- corrida
+function linhaClassificacao(c, alt) {
+  const ganho = c.grelha ? c.grelha - c.pos : null;
+  return `<div class="tab" style="grid-template-columns:28px 5px minmax(0,1fr) auto 34px 96px 44px;height:${alt}px;background:${c.eu ? c.cor + '33' : 'transparent'};font-size:17px;font-weight:${c.eu ? 700 : 500}">
+    <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span>
+    <span class="row g6 mw0">${esc(c.codigo)}${c.eu ? `<span class="tu" style="background:${c.cor}">TU</span>` : ''}${c.volta_rapida ? '<span class="etq" style="background:#B57BFF">VR</span>' : ''}</span>
+    ${bolas(c.compostos, 18)}
+    <span class="tr f14" style="color:${ganho > 0 ? '#3DDC84' : ganho < 0 ? '#FF7A7A' : '#98A2B3'}">${ganho ? (ganho > 0 ? '▲' : '▼') + Math.abs(ganho) : '—'}</span>
+    <span class="tr f15${c.pos === 1 ? '' : ' m'}">${esc(c.dif)}</span><span class="tr fw7">${c.pontos ?? ''}</span></div>`;
+}
+function resumoCorrida(d) {
+  const r = d.resumo, cor = r.cor;
+  const n = r.tabela.length;
+  const alt = Math.max(26, Math.min(38, Math.floor((alturaUtil - 96) / Math.max(n, 1))));
+  const ganho = r.ganhos;
+  return `<div class="rs" style="grid-template-columns:480px minmax(0,1fr) 430px">
+    <section class="p col pd14-12 g2 mh0 oh"><div class="row sb" style="padding:0 8px 8px"><span class="l">Classificação final</span><span class="f13 m">${esc(r.fonte || '')}</span></div>
+      <div class="tab f12 fw6 m" style="grid-template-columns:28px 5px minmax(0,1fr) auto 34px 96px 44px;letter-spacing:.08em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #232B35;border-radius:0">
+        <span>P</span><span></span><span>Piloto</span><span>Pneus</span><span class="tr">+/−</span><span class="tr">Diferença</span><span class="tr">Pts</span></div>
+      ${r.tabela.map((c) => linhaClassificacao(c, alt)).join('')}</section>
+    <div class="col g16 mh0">
+      <div class="cols4 g16 g">
+        ${heroi('Posição final', `P${r.posicao}`, r.grelha ? `Partida P${r.grelha} · <b style="color:${ganho >= 0 ? '#3DDC84' : '#FF4D4D'}">${ganho > 0 ? '+' : ganho < 0 ? '−' : ''}${Math.abs(ganho)}</b>${r.resultado && r.resultado !== 'Terminou' ? ' · ' + esc(r.resultado) : ''}` : esc(r.resultado || ''), cor)}
+        ${heroi('Pontos', r.pontos ?? '—', r.tempo_total_s ? 'Tempo ' + esc(fmtTotal(r.tempo_total_s)) : '')}
+        ${heroi('Para o vencedor', r.para_vencedor_s != null ? '+' + r.para_vencedor_s.toFixed(3) : r.posicao === 1 ? 'Venceste' : '—', r.tabela[0] ? 'Vencedor: ' + esc(r.tabela[0].codigo) : '', r.posicao === 1 ? '#3DDC84' : null)}
+        ${heroi('Melhor volta', fmtV(r.melhor_ms), r.melhor_rank ? `${ordinal(r.melhor_rank)} mais rápida${r.mais_rapida ? ' · VR ' + esc(r.mais_rapida.codigo) : ''}` : '', r.melhor_rank === 1 ? '#B57BFF' : '#3DDC84')}
+      </div>
+      <section class="p col pd16-22 g8 cresce mh0"><div class="row sb"><span class="l">Posição volta a volta</span><span class="f15 m">${r.grelha ? `Grelha P${r.grelha} → <b style="color:${cor}">P${r.posicao}</b>` : ''}</span></div>
+        ${svgPosicoes(r.posicoes, r.n_carros || 20, r.box_voltas, 862, 300, cor)}</section>
+      <section class="p col pd16-22 g8 cresce mh0"><span class="l">Tempos por volta</span>${svgVoltas(r.voltas_lista, 862, 270)}${legendaVoltas(r.voltas_lista)}</section>
+    </div>
+    <div class="col g16 mh0">
+      <section class="p col pd16-20 g6"><span class="l">Stints</span>${tabelaStints(r.stints)}</section>
+      <section class="p col pd16-20 g6"><span class="l">Paragens e penalizações</span>
+        ${kLinha('Paragens', `${r.paragens ?? 0}${r.box_voltas && r.box_voltas.length ? ' · V' + r.box_voltas.join(', V') : ''}`)}
+        ${kLinha('Penalizações', r.penalizacoes_s ? `+${r.penalizacoes_s} s` : 'Nenhuma', r.penalizacoes_s ? '#FFB020' : '#3DDC84')}</section>
+      <section class="p col pd16-20 g8"><span class="l">Medições guardadas</span>${medicoes(r)}</section>
+      <section class="p col pd16-20 g6 cresce mh0"><div class="row sb"><span class="l">Ritmo de corrida</span><span class="f13 m">mediana das voltas limpas</span></div>
+        ${(r.ritmos || []).map((x) => `<div class="g ai-c f17" style="grid-template-columns:30px 5px minmax(0,1fr) 90px 70px;gap:8px;padding:5px 8px;border-radius:6px;${x.eu ? `background:${x.cor}33;font-weight:700` : ''}">
+          <span class="m fw7">${x.rank}</span><span class="barra-eq" style="background:${x.cor}"></span><span>${esc(x.codigo)}</span>
+          <span class="tr">${fmtV(x.ms)}</span><span class="tr f15 m">${x.rank === 1 ? '—' : fmtD(x.ms - r.ritmos[0].ms)}</span></div>`).join('') || '<span class="m">Sem voltas suficientes</span>'}
+        ${r.proxima ? `<span class="f15 m" style="margin-top:auto">A seguir: <b style="color:${cor}">${esc(r.proxima)}</b></span>` : ''}</section>
+    </div></div>`;
+}
+const fmtTotal = (s) => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sg = (s % 60).toFixed(3).padStart(6, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${sg}` : `${m}:${sg}`; };
+
+// ---- qualificação
+function corSetor(t, meu, melhor) {
+  if (!t) return '#98A2B3';
+  if (melhor && t <= melhor) return '#B57BFF';
+  if (meu && t <= meu) return '#3DDC84';
+  return '#F5C518';
+}
+function tabelaVoltasQuali(r) {
+  const setores = r.setores || [];
+  const tipo = { saida: 'Saída', entrada: 'Entrada' };
+  const linhas = r.voltas_lista.map((v) => `<div class="g ai-c f17" style="grid-template-columns:44px 80px repeat(3,minmax(0,1fr)) 110px;gap:8px;padding:6px 0;border-bottom:1px solid #1B222A;opacity:${v.valida ? 1 : 0.55}">
+    <span class="m fw7">V${v.n}</span>${pneu(v.composto, 20).replace('<span', '<span title=""')}
+    ${v.s.map((t, k) => `<span class="tr" style="color:${v.box ? '#98A2B3' : corSetor(t, setores[k] && setores[k].meu, setores[k] && setores[k].melhor)}">${fmtS(t)}</span>`).join('')}
+    <span class="tr fw7"${v.ms === r.melhor_ms ? ' style="color:#3DDC84"' : ''}>${v.box ? `<span class="f13 m fw5">${tipo[v.box]} </span>` : ''}${fmtV(v.ms)}${v.valida ? '' : ' <span class="f12 c-verm2">inv.</span>'}</span></div>`).join('');
+  return `<div class="g f12 fw6 m" style="grid-template-columns:44px 80px repeat(3,minmax(0,1fr)) 110px;gap:8px;letter-spacing:.08em;text-transform:uppercase"><span>Volta</span><span>Pneu</span><span class="tr">S1</span><span class="tr">S2</span><span class="tr">S3</span><span class="tr">Tempo</span></div>${linhas}`;
+}
+function resumoQuali(d) {
+  const r = d.resumo, cor = r.cor;
+  const n = r.tabela.length;
+  const alt = Math.max(28, Math.min(44, Math.floor((alturaUtil - 120) / Math.max(n, 1)) - 4));
+  const linhas = r.tabela.map((c, k) => {
+    const corte = r.corte && k === r.corte ? `<div class="row g10" style="padding:4px 8px"><span class="cresce" style="height:2px;background:#FF4D4D"></span><span class="f13 fw7 c-verm2" style="letter-spacing:.1em">LINHA DE CORTE</span><span class="cresce" style="height:2px;background:#FF4D4D"></span></div>` : '';
+    return `${corte}<div class="tab" style="grid-template-columns:30px 6px minmax(0,1fr) 98px 78px;height:${alt}px;background:${c.eu ? c.cor + '33' : c.fora ? '#2A1215' : 'transparent'};font-size:18px;font-weight:${c.eu ? 700 : 500}">
+      <span class="fw7" style="color:${c.fora ? '#FF7A7A' : '#98A2B3'}">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span>
+      <span class="row g6">${esc(c.codigo)}${c.eu ? `<span class="tu" style="background:${c.cor}">TU</span>` : ''}</span>
+      <span class="tr" style="color:${k === 0 ? '#B57BFF' : '#F2F4F7'}">${fmtV(c.melhor_ms)}</span><span class="tr f15 m">${k === 0 || c.dif_ms == null ? '—' : fmtD(c.dif_ms)}</span></div>`;
+  }).join('');
+  const setores = (r.setores || []).map((x, k) => {
+    const dlt = x.meu && x.melhor ? x.meu - x.melhor : null;
+    const c = dlt == null ? '#98A2B3' : dlt <= 0 ? '#B57BFF' : '#F5C518';
+    return `<div class="col g2 pd12-14 r8" style="background:#0E1216;border-top:3px solid ${c}"><span class="f14 fw6 m">Setor ${k + 1}</span>
+      <span class="f30 fw7" style="color:${c}">${dlt == null ? '—' : dlt <= 0 ? 'Melhor' : fmtD(dlt)}</span><span class="f14 m">Tu ${fmtS(x.meu)} · sessão ${fmtS(x.melhor)}</span></div>`;
+  }).join('');
+  const conj = (r.conjuntos || []).map((c) => `<div class="g ai-c" style="grid-template-columns:28px minmax(0,1fr) auto;gap:12px;padding:6px 0;border-bottom:1px solid #1B222A">
+    ${pneu(c.composto, 24)}<span class="f17">${TN[c.composto]} ${c.novo ? 'novos' : `usados · ${c.desgaste}%`}</span><span class="f17 fw7">×${c.qtd}</span></div>`).join('') || '<span class="m">Sem dados</span>';
+  const proxTxt = r.proxima ? (/corrida/i.test(r.proxima) ? `Partes de P${r.posicao}` : r.passou === false ? 'Já não participas' : 'Vais lutar por uma posição melhor') : '';
+  return `<div class="rs" style="grid-template-columns:440px minmax(0,1fr) 430px">
+    <section class="p col pd14-12 g6 mh0 oh"><div class="tab f12 fw6 m" style="grid-template-columns:30px 6px minmax(0,1fr) 98px 78px;letter-spacing:.08em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #232B35;border-radius:0">
+      <span>P</span><span></span><span>Piloto</span><span class="tr">Melhor</span><span class="tr">Dif.</span></div>${linhas}</section>
+    <div class="col g16 mh0">
+      <div class="cols4 g16 g">
+        ${heroi(/corrida/i.test(r.proxima || '') ? 'Posição de partida' : 'Posição final', `P${r.posicao}`, r.corte ? (r.passou ? `<span class="c-verde fw6">Passaste o corte</span>` : `<span class="c-verm2 fw6">Eliminado</span>`) : 'Classificação da sessão', cor)}
+        ${heroi('Melhor volta', fmtV(r.melhor_ms), `${r.tentativas} ${r.tentativas === 1 ? 'volta rápida' : 'voltas rápidas'}`, '#3DDC84')}
+        ${heroi('Para a pole', r.para_pole_ms ? fmtD(r.para_pole_ms) : r.posicao === 1 ? 'Pole!' : '—', r.pole ? `Pole: ${esc(r.pole.codigo)} ${fmtV(r.pole.ms)}` : '', '#B57BFF')}
+        ${heroi('Volta ideal', fmtV(r.ideal_ms), r.ideal_ms && r.melhor_ms ? `Deixaste ${((r.melhor_ms - r.ideal_ms) / 1000).toFixed(3)} s em pista` : 'Soma dos melhores setores')}
+      </div>
+      <section class="p col pd16-22 g12"><span class="l">Os teus melhores setores vs os melhores da sessão</span><div class="cols3 g12 g">${setores}</div></section>
+      <section class="p col pd16-22 g4 mh0 oh"><span class="l">As tuas voltas</span>${tabelaVoltasQuali(r)}</section>
+      <section class="p col pd16-22 g10 cresce mh0"><span class="l">Onde perdeste tempo · a tua melhor volta contra</span>
+        ${(r.comparacao || []).map((x) => `<div class="g ai-c" style="grid-template-columns:150px repeat(3,minmax(0,1fr)) 120px;gap:12px">
+          <span class="row g8 f20 fw7"><span class="barra-eq" style="background:${x.cor}"></span>${esc(x.codigo)} <span class="f14 fw5 m">P${x.pos}${x.pos === 1 ? ' · pole' : ''}</span></span>
+          ${x.setores_ms.map((dms, k) => `<div class="col pd8-12 r6" style="background:#0E1216;border-left:3px solid ${dms <= 0 ? '#3DDC84' : '#FFB020'}"><span class="f13 m">Setor ${k + 1}</span><span class="f22 fw7" style="color:${dms <= 0 ? '#3DDC84' : '#FFB020'}">${fmtD(dms)}</span></div>`).join('')}
+          <div class="col tr"><span class="f13 m">Volta</span><span class="f24 fw7" style="color:${x.total_ms <= 0 ? '#3DDC84' : '#FF7A7A'}">${fmtD(x.total_ms)}</span></div></div>`).join('') || '<span class="f16 m">Fizeste a pole: ninguém foi mais rápido</span>'}</section>
+    </div>
+    <div class="col g16 mh0">
+      <section class="p col pd16-20 g6"><span class="l">Pneus que sobram</span>${conj}</section>
+      <section class="p col pd16-20 g8"><span class="l">Sessão</span>${kLinha('Voltas feitas', r.voltas)}${kLinha('Voltas rápidas', r.tentativas)}${kLinha('Speed trap', (r.speed_trap || '—') + ' km/h')}</section>
+      <section class="p col pd16-20 g6 cresce mh0"><span class="l">A seguir</span>${aSeguir(r)}<span class="f16 m">${proxTxt}</span></section>
+    </div></div>`;
+}
+
+// ---- treinos
+function resumoTreinos(d) {
+  const r = d.resumo, cor = r.cor;
+  const prog = (r.programa && r.programa.tarefas) || [];
+  const tarefas = prog.map((p) => `<div class="tarefa" style="border-color:${p.feito ? '#1F6B3D' : '#1B222A'}">
+    <span class="w26 h26 redondo row jc-c" style="background:${p.feito ? '#3DDC84' : 'transparent'};border:2px solid ${p.feito ? '#3DDC84' : '#3A4450'};box-sizing:border-box">${p.feito ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0A0C0F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>' : ''}</span>
+    <div class="col g2"><span class="f17 fw6">${esc(p.nome)}</span><span class="f14" style="color:${p.feito ? '#3DDC84' : '#FFB020'}">${esc(p.detalhe)}</span></div></div>`).join('');
+  const tabela = (r.tabela || []).map((c) => `<div class="tab" style="grid-template-columns:28px 5px minmax(0,1fr) 96px 70px;height:34px;background:${c.eu ? c.cor + '33' : 'transparent'};font-size:17px;font-weight:${c.eu ? 700 : 500}">
+    <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span class="row g6">${esc(c.codigo)}${c.eu ? `<span class="tu" style="background:${c.cor}">TU</span>` : ''}</span>
+    <span class="tr" style="color:${c.pos === 1 ? '#B57BFF' : '#F2F4F7'}">${fmtV(c.melhor_ms)}</span><span class="tr f15 m">${c.pos === 1 ? '—' : fmtD(c.dif_ms)}</span></div>`).join('');
+  const rt = r.ritmo;
+  const longo = rt ? rt.voltas.map((ms, k) => ({ n: rt.de_volta + k, ms, valida: true, composto: rt.composto })) : [];
+  const set = r.setores || [];
+  const piorK = set.reduce((a, x, k) => (x.meu && x.melhor && (a < 0 || x.meu - x.melhor > set[a].meu - set[a].melhor) ? k : a), -1);
+  const cc = r.combustivel_corrida;
+  return `<div class="rs" style="grid-template-columns:430px minmax(0,1fr) 430px">
+    <div class="col g16 mh0">
+      <section class="p col pd16-20 g10"><div class="row sb"><span class="l">Programa</span><span class="f15 fw7${r.programa && r.programa.feitas === r.programa.total ? ' c-verde' : ' c-ambar'}">${r.programa ? r.programa.feitas + ' de ' + r.programa.total : ''}</span></div>${tarefas}</section>
+      <section class="p col pd16-20 g4 cresce mh0 oh"><span class="l">Tabela da sessão</span>${tabela}</section>
+    </div>
+    <div class="col g16 mh0">
+      <div class="cols4 g16 g">
+        ${heroi('Posição', `P${r.posicao}`, 'Na tabela da sessão', cor)}
+        ${heroi('Melhor volta', fmtV(r.melhor_ms), r.mais_rapida ? `Mais rápida: ${esc(r.mais_rapida.codigo)} ${fmtV(r.mais_rapida.ms)}` : '', '#3DDC84')}
+        ${heroi('Voltas', r.voltas, `${r.stints.length} ${r.stints.length === 1 ? 'stint' : 'stints'}`)}
+        ${heroi('Foco', piorK >= 0 && set[piorK].meu > set[piorK].melhor ? `Setor ${piorK + 1}` : '—', piorK >= 0 && set[piorK].meu > set[piorK].melhor ? `Perdes ${((set[piorK].meu - set[piorK].melhor) / 1000).toFixed(3)} s` : 'Sem setor a perder tempo', '#FFB020')}
+      </div>
+      <section class="p col pd16-22 g8 cresce mh0"><div class="row sb ai-b"><span class="l">Simulação de corrida${rt ? ' · ' + TN[rt.composto] + ' · ' + rt.voltas.length + ' voltas a partir da V' + rt.de_volta : ''}</span>
+        ${rt ? `<span class="row g16 f16"><span>Média <b>${fmtV(rt.media_ms)}</b></span><span>Degradação <b class="c-ambar">${fmtD(rt.degradacao_ms)} s</b></span><span>Consistência <b style="color:${rt.consistencia_ms < 200 ? '#3DDC84' : '#FFB020'}">±${(rt.consistencia_ms / 1000).toFixed(2)} s</b></span></span>` : ''}</div>
+        ${rt ? svgVoltas(longo, 852, 270, rt.projecao) : '<div class="f16 m" style="margin:auto">Não houve voltas seguidas suficientes no mesmo pneu</div>'}</section>
+      <section class="p col pd16-22 g8 cresce mh0"><span class="l">Tempos por volta</span>${svgVoltas(r.voltas_lista, 852, 250)}${legendaVoltas(r.voltas_lista)}</section>
+    </div>
+    <div class="col g16 mh0">
+      <section class="p col pd16-20 g6"><span class="l">Stints</span>${tabelaStints(r.stints)}</section>
+      <section class="p col pd16-20 g8"><span class="l">Medições guardadas</span>${medicoes(r)}</section>
+      <section class="p col pd16-20 g6"><span class="l">Para a corrida</span>
+        ${cc ? kLinha(`Combustível (${cc.voltas} voltas + 1)`, cc.kg + ' kg', cor) : ''}
+        ${r.plano_corrida ? kLinha('Estratégia provável', esc(textoStints(r.plano_corrida))) : ''}</section>
+      <section class="p col pd16-20 g6 cresce mh0"><span class="l">A seguir</span>${aSeguir(r)}</section>
+    </div></div>`;
+}
+
 function renderResumo(d) {
   const r = d.resumo;
-  return `${cabecalho(d, 'Fim · ' + r.sessao, d.eu.cor, `<span class="f32 fw7">Resumo da sessão</span>${r.fonte ? `<span class="f15 m">${esc(r.fonte)}</span>` : ''}`, '')}
-    <div class="resumo-grelha">${itensResumo(d).map(([t, c, extra]) => kCartao(t, c, extra)).join('')}</div>`;
+  const corpo = r.ecra === 'corrida' ? resumoCorrida(d) : r.ecra === 'qualificacao' ? resumoQuali(d) : resumoTreinos(d);
+  return `${cabecalho(d, 'Fim · ' + r.sessao, r.cor, `<span class="f32 fw7">Resumo da sessão</span>`, '')}${corpo}`;
 }
+
+// ---- resumo na vista compacta (telemóvel)
 function compactoResumo(d) {
   const r = d.resumo;
-  return `${kTopo(d, 'Fim · ' + r.sessao, '<span class="f20 fw7">Resumo</span>', '')}
-    <div class="k-grelha">${itensResumo(d).map(([t, c]) => kCartao(t, c)).join('')}</div>`;
+  const cards = [];
+  if (r.ecra === 'corrida') {
+    cards.push(kCartao('Resultado', `<span class="k-grande" style="color:${r.cor}">P${r.posicao}</span>
+      <span class="f16 m">${r.grelha ? `Partida P${r.grelha}` : ''}${r.pontos != null ? ` · ${r.pontos} pontos` : ''}${r.para_vencedor_s != null ? ` · +${r.para_vencedor_s.toFixed(3)} s` : ''}</span>`));
+    cards.push(kCartao('Posição volta a volta', `<div style="overflow:hidden">${svgPosicoes(r.posicoes, r.n_carros || 20, r.box_voltas, 330, 200, r.cor).replace(/width="330" height="200"/, 'width="100%" height="200"')}</div>`));
+    cards.push(kCartao('Stints', tabelaStints(r.stints)));
+    cards.push(kCartao('Classificação', `<div class="col g2">${r.tabela.filter((c) => c.pos <= 10 || c.eu).map((c) => `<div class="k-fila${c.eu ? ' eu' : ''}" style="${c.eu ? `background:${c.cor}33` : ''}"><span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span>${esc(c.codigo)}</span><span class="tr f15 m">${esc(c.dif)}</span>${c.pontos ? `<span class="tr fw7 f15">${c.pontos}</span>` : '<span></span>'}</div>`).join('')}</div>`));
+  } else if (r.ecra === 'qualificacao') {
+    cards.push(kCartao('Resultado', `<span class="k-grande" style="color:${r.cor}">P${r.posicao}</span>
+      <span class="f16 m">${r.corte ? (r.passou ? 'Passaste o corte' : 'Eliminado') : ''}${r.para_pole_ms ? ` · pole ${fmtD(r.para_pole_ms)}` : ''}</span>`));
+    cards.push(kCartao('Melhor volta', `<span class="f36 fw7 c-verde">${fmtV(r.melhor_ms)}</span>${kLinha('Volta ideal', fmtV(r.ideal_ms))}`));
+    cards.push(kCartao('Setores', (r.setores || []).map((x, k) => kLinha(`Setor ${k + 1}`, x.meu && x.melhor ? (x.meu <= x.melhor ? 'Melhor' : fmtD(x.meu - x.melhor)) : '—', x.meu && x.melhor && x.meu <= x.melhor ? '#B57BFF' : '#F5C518')).join('')));
+  } else {
+    cards.push(kCartao('Resultado', `<span class="k-grande" style="color:${r.cor}">P${r.posicao}</span><span class="f16 m">${r.voltas} voltas · melhor ${fmtV(r.melhor_ms)}</span>`));
+    if (r.programa) cards.push(kCartao('Programa', `<span class="f28 fw7${r.programa.feitas === r.programa.total ? ' c-verde' : ''}">${r.programa.feitas} de ${r.programa.total}</span><span class="f15 m">${r.programa.falta.length ? 'Falta: ' + r.programa.falta.map(esc).join(', ') : 'Tudo feito'}</span>`));
+    if (r.ritmo) cards.push(kCartao('Simulação de corrida', `${kLinha('Média', fmtV(r.ritmo.media_ms))}${kLinha('Degradação', fmtD(r.ritmo.degradacao_ms) + ' s/volta', '#FFB020')}`));
+    if (r.plano_corrida) cards.push(kCartao('Estratégia provável', `<span class="f20 fw7">${esc(textoStints(r.plano_corrida))}</span>`));
+  }
+  cards.push(kCartao('Tempos por volta', `<div style="overflow:hidden">${svgVoltas(r.voltas_lista, 330, 180).replace(/width="330" height="180"/, 'width="100%" height="180"')}</div>`));
+  if (r.consumo_volta || r.desgaste_volta) cards.push(kCartao('Medições guardadas', medicoes(r)));
+  cards.push(kCartao('A seguir', aSeguir(r)));
+  return `${kTopo(d, 'Fim · ' + r.sessao, '<span class="f20 fw7">Resumo</span>', '')}<div class="k-grelha">${cards.join('')}</div>`;
 }
 
 // ------------------------------------------------------------------ ciclo

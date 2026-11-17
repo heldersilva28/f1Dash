@@ -65,6 +65,16 @@ class TestePacotes(unittest.TestCase):
         self.assertEqual((fc[0]['posicao'], fc[0]['pontos'], fc[0]['tempo_total']), (3, 15, 4712.5))
         self.assertEqual(fc[0]['stints'], [{'visual': 16, 'fim': 18}, {'visual': 17, 'fim': 44}])
 
+    def test_posicoes_volta_a_volta(self):
+        dados = bytearray(pacote_vazio(2025, 15))
+        o = P.CABECALHO.size
+        dados[o], dados[o + 1] = 2, 0                     # 2 voltas, a começar na volta 1
+        dados[o + 2 + 3] = 5                              # volta 1: carro 3 em P5
+        dados[o + 2 + 22 + 3] = 4                         # volta 2: carro 3 em P4
+        _, nome, c = P.descodificar(bytes(dados))
+        self.assertEqual(nome, 'posicoes_voltas')
+        self.assertEqual((c['inicio'], c['voltas'][0][3], c['voltas'][1][3]), (0, 5, 4))
+
     def test_simulacao_completa(self):
         for modo in ('corrida', 'qualificacao', 'treinos'):
             with self.subTest(modo=modo):

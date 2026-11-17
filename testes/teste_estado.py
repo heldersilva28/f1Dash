@@ -494,7 +494,12 @@ class TesteResumo(ComMemoriaTemporaria):
         s.receber(cab(s.uid, demo.JOGADOR), 'classificacao', fc)
         r = s.fotografia()['resumo']
         self.assertEqual((r['posicao'], r['grelha'], r['pontos'], r['resultado']), (3, 5, 15, 'Terminou'))
-        self.assertEqual(r['stints'], [{'composto': 'S', 'voltas': 18}, {'composto': 'M', 'voltas': 26}])
+        self.assertEqual([(st['composto'], st['voltas']) for st in r['stints']], [('S', 18), ('M', 26)])
+        self.assertEqual(r['box_voltas'], [18])
+        eu = next(x for x in r['tabela'] if x['eu'])
+        self.assertEqual((eu['pos'], eu['pontos'], eu['dif'], eu['compostos']), (3, 15, '+12.500', ['S', 'M']))
+        self.assertEqual(r['tabela'][0]['dif'], '1:18:20.000')          # o vencedor mostra o tempo total
+        self.assertEqual(r['posicoes'][-1]['pos'], 3)
         self.assertEqual(r['para_vencedor_s'], 12.5)
         self.assertEqual(s.fotografia()['alertas'], [])        # corrida acabada: sem alertas
 
@@ -505,12 +510,71 @@ class TesteResumo(ComMemoriaTemporaria):
         self.assertEqual(r['proxima'], 'Treinos livres 3')
         self.assertEqual(r['programa']['total'], 3)
         self.assertIn('plano_corrida', r)
+        self.assertEqual(r['proxima_programa'], ['Simulação de qualificação', 'Confirmar ritmo de corrida (5 voltas)',
+                                                 'Medir o desgaste dos pneus'])
+        # a simulação de corrida é o stint com mais voltas limpas, não o último
+        runs = []
+        fim_ant = 0
+        for st in r['stints']:
+            runs.append(sum(1 for v in r['voltas_lista'] if fim_ant < v['n'] <= st['ate_volta'] and v['valida'] and not v['box']))
+            fim_ant = st['ate_volta']
+        self.assertEqual(len(r['ritmo']['voltas']), max(runs))
 
     def test_nova_sessao_apaga_o_resumo(self):
         s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=20)
         s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'SEND'})
         s.receber(cab(999), 'sessao', sessao(tipo=3))
         self.assertFalse(s.fim_sessao)
+
+
+# ---------------------------------------------------------------- resumos mais completos
+class TesteResumoCompleto(ComMemoriaTemporaria):
+    def test_corrida_da_demo_ate_ao_fim(self):
+        """A demo termina a corrida como o jogo: resultado final, posições por volta e classificação."""
+        sim = demo.Simulador('corrida')
+        s = E.Sessao(guardar=False)
+        k = 0
+        while not (s.fim_sessao and s.classificacao) and k < 20 * 60 * 100:
+            sim.passo(0.05)
+            k += 1
+            if k % 4 and not s.fim_sessao:
+                continue
+            for p in sim.pacotes():
+                r = P.descodificar(p)
+                if r:
+                    s.receber(*r)
+        f = s.fotografia()
+        r = f['resumo']
+        self.assertEqual(r['fonte'], 'classificação final do jogo')
+        self.assertEqual(len(r['tabela']), 22)
+        self.assertEqual(r['voltas'], 44)
+        self.assertEqual(sum(st['voltas'] for st in r['stints']), 44)
+        self.assertEqual(r['posicoes'][-1]['pos'], r['posicao'])
+        self.assertGreater(len(r['posicoes']), 40)               # vem do pacote de posições do jogo
+        self.assertEqual(sum(x['pontos'] for x in r['tabela']), 101)
+        self.assertEqual(sum(1 for x in r['tabela'] if x['volta_rapida']), 1)
+        self.assertTrue(any(x['eu'] for x in r['ritmos']))
+        self.assertEqual([x['rank'] for x in r['ritmos'][:3]], [1, 2, 3])
+        self.assertEqual(f['alertas'], [])
+
+    def test_qualificacao_compara_setores_com_a_pole(self):
+        sim = demo.Simulador('qualificacao')
+        sim.carros[demo.JOGADOR].na_garagem_ate = 5
+        s = E.Sessao(guardar=False)
+        while not s.fim_sessao:
+            sim.passo(0.05)
+            for p in sim.pacotes():
+                r = P.descodificar(p)
+                if r:
+                    s.receber(*r)
+        r = s.fotografia()['resumo']
+        self.assertTrue(r['voltas_lista'])
+        self.assertIn(r['voltas_lista'][0]['box'], ('saida', None))
+        if r['posicao'] > 1:
+            pole = r['comparacao'][0]
+            self.assertEqual(pole['pos'], 1)
+            self.assertEqual(pole['total_ms'], sum(pole['setores_ms']))
+            self.assertEqual(pole['total_ms'], r['para_pole_ms'])
 
 
 if __name__ == '__main__':
