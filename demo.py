@@ -166,9 +166,10 @@ class Simulador:
         for c in self.carros:
             if not c.ativo:
                 continue
-            if self.t < c.box_ate or self.t < c.na_garagem_ate:
-                if self.modo != 'corrida' and c.estado_piloto == 0 and self.t >= c.na_garagem_ate - dt:
-                    pass
+            if self.t < c.box_ate:
+                c.t_volta += dt * 1000      # parado na box: o cronómetro da volta continua (como no jogo)
+                continue
+            if self.t < c.na_garagem_ate:
                 continue
             if self.modo != 'corrida' and c.estado_piloto == 0:
                 # sai da garagem: volta de saída
@@ -393,7 +394,10 @@ class Simulador:
         if self.modo == 'corrida':
             meu_gap = self._gap(eu, ordem[0]) / 1000 + 21.4
             reent = 1 + sum(1 for c in ordem if c is not eu and self._gap(c, ordem[0]) / 1000 < meu_gap)
-        campos = [0, 90, 1, 2, 3, 29, 32, reent] + [0] * 11 + [840] + [0] * 33 + [0] * 12 + [S2, S3]
+        # duração "completa" (7) e fim de semana normal: TL1, TL2, TL3, Q1, Q2, Q3, corrida
+        fds = [1, 2, 3, 5, 6, 7, 15]
+        campos = [0, 90, 1, 2, 3, 29, 32, reent] + [0] * 11 + [840] + [7] + [0] * 31 + [len(fds)] \
+            + fds + [0] * (12 - len(fds)) + [S2, S3]
         b += P.SESSAO_C.pack(*campos)
         b += P.SESSAO_2026.pack(0, 2, struct.pack('<16f', 0.05, 0.12, 0.6, 0.7, *([0.0] * 12)), 0, b'\x00' * 64,
                                 0, b'\x00' * 32, 0.0, 0, 0, 0, 0, 0)
@@ -408,17 +412,34 @@ class Simulador:
                                           c.nome.encode('utf-8'), 1, 1, 0, 0, 2, *cores)
         return bytes(b)
 
+    # vida útil por composto (voltas) e ritmo: diferença base e perda por volta de idade (ms), como em _nova_volta_alvo
+    VIDA = {16: 18, 17: 26, 18: 34}
+    RITMO = {16: (-450, 55), 17: (-200, 35), 18: (0, 22)}
+
     def _conjuntos(self, t, f):
+        """Conjuntos de pneus do jogador, com a vida que resta e a diferença de ritmo para o montado (como o jogo)."""
         b = bytearray(cab(12, t, f))
         b.append(JOGADOR)
-        conj = [(17, 16, 0, 1), (17, 16, 18, 1), (17, 16, 18, 1), (18, 17, 0, 1), (18, 17, 0, 1), (19, 18, 0, 1)]
+        eu = self.carros[JOGADOR]
+        conj = [(17, 16, 0), (17, 16, 18), (17, 16, 18), (18, 17, 0), (18, 17, 0), (19, 18, 0), (19, 18, 0)]
+        montado = next(k for k, c in enumerate(conj) if c[1] == eu.composto)
+
+        def idade(k):
+            return eu.idade if k == montado else round(self.VIDA[conj[k][1]] * conj[k][2] / 70)
+
+        def ritmo(k):
+            base, por_volta = self.RITMO[conj[k][1]]
+            return base + por_volta * idade(k)
         for k in range(20):
             if k < len(conj):
-                r, v, w, d = conj[k]
-                b += P.CONJ_PNEUS.pack(r, v, w, d, 0, 20, 20, 0, 0)
+                r, v, w = conj[k]
+                vida_util = self.VIDA[v]
+                vida = max(0, vida_util - idade(k))
+                desg = round(sum(self.desgaste) / 4) if k == montado else w
+                b += P.CONJ_PNEUS.pack(r, v, desg, 1, 0, vida, vida_util, ritmo(k) - ritmo(montado), int(k == montado))
             else:
                 b += P.CONJ_PNEUS.pack(0, 0, 0, 0, 0, 0, 0, 0, 0)
-        b.append(0)
+        b.append(montado)
         return bytes(b)
 
     def avancar_rapido(self, segundos, dt=0.05):

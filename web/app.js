@@ -64,11 +64,11 @@ function pilula(texto, cor, fundo, borda) {
 }
 function pilulaBandeira(d) {
   const sc = d.sessao.safety_car, b = d.eu.bandeira;
+  if (d.sessao.bandeira_vermelha) return pilula('Bandeira vermelha', '#FF4D4D', '#2A1215', '#7A2228');
   if (sc === 1) return pilula('Safety Car', '#F5C518', '#2A2410', '#7A6410');
   if (sc === 2) return pilula('Virtual Safety Car', '#F5C518', '#2A2410', '#7A6410');
   if (sc === 3) return pilula('Volta de formação', '#98A2B3', '#161B21', '#2A333E');
   if (b === 3) return pilula('Bandeira amarela', '#F5C518', '#2A2410', '#7A6410');
-  if (b === 4) return pilula('Bandeira vermelha', '#FF4D4D', '#2A1215', '#7A2228');
   if (b === 2) return pilula('Bandeira azul', '#4DA3FF', '#0F1E2E', '#285E94');
   return pilula('Bandeira verde', '#3DDC84', '#0F2A1A', '#1F6B3D');
 }
@@ -155,8 +155,9 @@ function renderCorrida(d) {
     }
     const corT = dif == null ? '#98A2B3' : (frente ? (dif > 0 ? '#3DDC84' : '#FFB020') : (dif > 0 ? '#FFB020' : '#3DDC84'));
     let ajuda = '';
-    if (frente) ajuda = v.gap_s < 1 ? `${nomeAjuda} ao alcance` : `${nomeAjuda} a ${(v.gap_s - 1).toFixed(3)} s`;
-    else if (v.gap_s < 1) ajuda = `tem ${nomeAjuda} sobre ti`;
+    const aj = eu.ajuda;
+    if (frente) ajuda = aj && aj.disp ? `${nomeAjuda} disponível` : v.gap_s < 1 ? `A menos de 1 s · ${nomeAjuda} na próxima deteção` : `${nomeAjuda} a ${(v.gap_s - 1).toFixed(3)} s`;
+    else if (v.ajuda_disp) ajuda = `tem ${nomeAjuda} sobre ti`;
     const voltas = v.voltas_atras ? ` · ${v.voltas_atras} V` : '';
     return `<div class="pd16-22 g2 p col">
       <span class="l">${frente ? 'Carro à frente' : 'Carro atrás'} · P${v.pos}</span>
@@ -196,7 +197,8 @@ function renderCorrida(d) {
     else aeroTxt = 'Modo curva';
   }
   const margem = eu.margem_voltas;
-  const vidaTxt = eu.vida_restante_voltas != null ? `~${eu.vida_restante_voltas} voltas` : 'a calcular…';
+  const vidaJogo = eu.vida_fonte === 'do jogo';
+  const vidaTxt = eu.vida_restante_voltas != null ? `${vidaJogo ? '' : '~'}${eu.vida_restante_voltas} voltas` : 'a calcular…';
   const reent = cr.reentrada;
   const corT = (x) => x > 125 ? '#FF4D4D' : x > 115 ? '#FFB020' : '#F2F4F7';
   return `${cabecalho(d, s.nome, eu.cor, `
@@ -256,9 +258,10 @@ function renderCorrida(d) {
         <div class="g3 row" aria-hidden="true">${janela.join('')}</div>
         <div class="f13 row sb m"><span>V${volta} (agora)</span><span>V${total}</span></div>
         ${s.chuva ? `<div class="f15 fw6 c-azul">Chuva ${s.chuva.chuva}% daqui a ${s.chuva.min} min — pensa nos intermédios</div>` : ''}
+        ${cartaoPlano(cr.plano)}
         <div class="cols2 g10 g">
           <div class="cx"><span class="f13 m">Se parares agora</span><span class="f21 fw7">${reent ? 'Sais em P' + reent.pos : '—'}</span><span class="f14 m">${reent && reent.atras_de ? 'atrás de ' + esc(reent.atras_de) : ''}</span></div>
-          <div class="cx"><span class="f13 m">Vida dos pneus (até 70%)</span><span class="f21 fw7">${vidaTxt}</span><span class="f14 m">${[eu.pneu_limite != null ? RODA[eu.pneu_limite] + ' limita' : '', eu.desgaste_fonte && eu.desgaste_fonte !== 'esta sessão' ? esc(eu.desgaste_fonte) : ''].filter(Boolean).join(' · ')}</span></div>
+          <div class="cx"><span class="f13 m">${vidaJogo ? `Pneus · vida útil ${eu.vida_total_voltas}` : 'Vida dos pneus (até 70%)'}</span><span class="f21 fw7">${vidaTxt}</span><span class="f14 m">${[eu.pneu_limite != null ? RODA[eu.pneu_limite] + ' limita' : '', eu.desgaste_fonte && eu.desgaste_fonte !== 'esta sessão' ? esc(eu.desgaste_fonte) : ''].filter(Boolean).join(' · ')}</span></div>
         </div>
       </section>
       <section class="pd16-22 g10 p col">
@@ -274,7 +277,7 @@ function renderCorrida(d) {
         <div class="h12 barra"><div class="bg-azul" style="width:${pct(eu.ers_pct)}"></div></div>
         <span class="f14 m">Recuperado nesta volta ${eu.ers_rec_mj ?? '—'} MJ · usado ${eu.ers_usado_mj ?? '—'} MJ${eu.ers_limite_mj ? ' · limite ' + eu.ers_limite_mj + ' MJ' : ''}</span>
         <div class="cols2 g10 g">
-          <div class="cx"><span class="f13 m">${regras26 ? 'Aero ativa' : 'DRS'}</span><span class="f17 fw7" style="color:${aeroCor}">${regras26 ? aeroTxt : (cr.frente && cr.frente.gap_s < 1 ? 'Disponível' : 'Indisponível')}</span>
+          <div class="cx"><span class="f13 m">${regras26 ? 'Aero ativa' : 'DRS'}</span><span class="f17 fw7" style="color:${aeroCor}">${regras26 ? aeroTxt : (eu.ajuda && eu.ajuda.disp ? 'Disponível' : eu.ajuda && eu.ajuda.dist ? `Em ${eu.ajuda.dist} m` : 'Indisponível')}</span>
             ${regras26 && aero.ovtk_ativo ? '<span class="f13 c-verde">Overtake ativo</span>' : ''}</div>
           <div class="cx"><span class="f13 m">Combustível</span><span class="f19 fw7" style="color:${margem == null ? '#F2F4F7' : margem >= 0 ? '#3DDC84' : '#FF4D4D'}">${margem == null ? '—' : (margem >= 0 ? '+' : '') + margem.toFixed(2) + ' voltas'}</span>
             <span class="f13 m">${eu.combustivel ?? '—'} kg no tanque</span></div>
@@ -399,7 +402,8 @@ function renderQuali(d) {
         <div class="cols3 g8 f14 g m">
           <span>Volta saída<br><b class="f20 c-claro">${fmtRelogio((q.saida_ms || 0) / 1000)}</b></span>
           <span>Volta rápida<br><b class="f20 c-claro">${fmtRelogio((eu.melhor_ms || 0) / 1000)}</b></span>
-          <span>Volta entrada<br><b class="f20 c-claro">${fmtRelogio((q.entrada_ms || 0) / 1000)}</b></span></div>
+          <span>Volta entrada<br><b class="f20 c-claro">${fmtRelogio((q.entrada_ms || 0) / 1000)}</b></span>
+          ${q.tempos_box_fonte && q.tempos_box_fonte !== 'do jogo' ? `<span class="f13" style="grid-column:1/-1">Saída e entrada ${esc(q.tempos_box_fonte)}</span>` : ''}</div>
       </section>
       <section class="pd18-22 g10 p col"><span class="l">Tráfego na pista</span>${traf}</section>
       <section class="pd18-22 g10 p col">
@@ -491,7 +495,7 @@ function renderTreinos(d) {
       <span class="w1 h32 bg-linha"></span><span class="l">Voltas</span><span class="f32 fw7">${Math.max(eu.volta - 1, 0)}</span>`, pilulaEstado(eu))}
   <div class="cresce mh0 g16" style="display:grid;grid-template-columns:440px minmax(0,1fr) 480px">
     <div class="g16 mh0 col">
-      <section class="pd18-20 g10 p col"><div class="row sb"><span class="l">Programa da sessão</span><span class="f13 m">marca-se sozinho</span></div>${tarefas}</section>
+      <section class="pd18-20 g10 p col"><div class="row sb"><span class="l">Programa da sessão</span><span class="f13 m">${s.proxima ? 'a seguir: ' + esc(s.proxima) : 'marca-se sozinho'}</span></div>${tarefas}</section>
       <section class="cresce mh0 pd18-20 g8 oh p col">
         <span class="l">Stints</span>
         <div class="g8 f12 fw6 pb6 bb g m" style="grid-template-columns:24px 40px 50px minmax(0,1fr) minmax(0,1fr);letter-spacing:.08em;text-transform:uppercase">
@@ -516,13 +520,14 @@ function renderTreinos(d) {
       <section class="pd18-22 g10 p col">
         <span class="l">Desgaste dos pneus por volta</span>
         <div class="cols2 g10 g">${desg}</div>
-        <div class="ai-b row sb" style="padding-top:4px"><span class="f16 m">Vida útil estimada (até 70%)</span><span class="f26 fw7">${eu.vida_total_voltas != null ? '~' + eu.vida_total_voltas + ' voltas' : 'a calcular…'}</span></div>
+        <div class="ai-b row sb" style="padding-top:4px"><span class="f16 m">${eu.vida_fonte === 'do jogo' ? 'Vida útil deste composto (jogo)' : 'Vida útil estimada (até 70%)'}</span><span class="f26 fw7">${eu.vida_total_voltas != null ? (eu.vida_fonte === 'do jogo' ? '' : '~') + eu.vida_total_voltas + ' voltas' : 'a calcular…'}</span></div>
         <span class="f14 fw6 c-ambar">${eu.pneu_limite != null ? RODA[eu.pneu_limite] + ' é quem limita' : ''}${eu.desgaste_fonte && eu.desgaste_fonte !== 'esta sessão' ? `<span class="fw5 m"> · ${esc(eu.desgaste_fonte)}</span>` : ''}</span>
       </section>
       <section class="pd18-22 g10 p col">
         <span class="l">Combustível para a corrida</span>
         <div class="ai-b row sb"><span class="f16 m">Consumo médio</span><span class="f26 fw7">${consumo ? consumo.toFixed(2) + ' kg/volta' : 'a calcular…'}</span></div>
         <div class="ai-b row sb"><span class="f16 m">${voltasCorrida ? voltasCorrida + ' voltas + 1 de margem' : 'Voltas da corrida'}<br><span class="f13">${esc(fonteVoltas)}</span></span><span class="f26 fw7" style="color:${eu.cor}">${total ? total + ' kg' : '—'}</span></div>
+        ${t.plano_corrida ? `<div class="ai-b row sb g8"><span class="f16 m">Estratégia provável</span><span class="f20 fw7 tr">${esc(textoStints(t.plano_corrida))}</span></div>` : ''}
         <span class="f14 m">${eu.consumo_fonte && eu.consumo_fonte !== 'esta sessão' ? `Consumo ${esc(eu.consumo_fonte)}, até teres voltas nesta sessão` : 'Consumo medido nas tuas voltas'} · voltas da corrida lidas automaticamente</span>
       </section>
       <section class="cresce mh0 pd18-22 g6 oh p col"><span class="l">Tabela da sessão</span>${linhasTab}</section>
@@ -623,6 +628,7 @@ function compactoCorrida(d) {
       ${eu.desgaste_fonte && eu.desgaste_fonte !== 'esta sessão' ? `<span class="f13 m">${esc(eu.desgaste_fonte)}</span>` : ''}`)}
     ${kCartao('Estratégia', `${kLinha('Janela de box', s.box_ideal ? `V${s.box_ideal}–V${s.box_ultima || s.box_ideal}` : '—', eu.cor)}
       ${kLinha('Se parares agora', cr.reentrada ? 'P' + cr.reentrada.pos : '—')}
+      ${cr.plano ? `<span class="f16 fw7">${esc(textoPlano(cr.plano))}</span>` : ''}
       ${s.chuva ? `<span class="f15 fw6 c-azul">Chuva ${s.chuva.chuva}% daqui a ${s.chuva.min} min</span>` : ''}`)}
     ${kCartao('Energia', `${kLinha('Bateria ERS', (eu.ers_pct ?? '—') + '%', '#4DA3FF')}<div class="barra h12"><div style="width:${pct(eu.ers_pct)};background:#4DA3FF"></div></div>
       ${kLinha('Combustível', margem == null ? '—' : (margem >= 0 ? '+' : '') + margem.toFixed(2) + ' voltas', margem == null ? null : margem >= 0 ? '#3DDC84' : '#FF4D4D')}`)}
@@ -684,7 +690,8 @@ function compactoTreinos(d) {
     ${kCartao('Desgaste por volta', `<div class="k-pneus">${[2, 3, 0, 1].map((k) => `<div class="cx"><span class="f13 m">${RODA[k]}</span><span class="f24 fw7"${eu.pneu_limite === k ? ' style="color:#FFB020"' : ''}>${taxa ? taxa[k].toFixed(1) + '%' : '—'}</span></div>`).join('')}</div>
       ${kLinha('Vida estimada', eu.vida_total_voltas != null ? '~' + eu.vida_total_voltas + ' voltas' : 'a calcular…')}`)}
     ${kCartao('Combustível para a corrida', `${kLinha('Consumo', consumo ? consumo.toFixed(2) + ' kg/volta' : 'a calcular…')}
-      ${kLinha(voltasCorrida ? voltasCorrida + ' voltas + 1' : 'Voltas da corrida', totalKg ? totalKg + ' kg' : '—', eu.cor)}`)}
+      ${kLinha(voltasCorrida ? voltasCorrida + ' voltas + 1' : 'Voltas da corrida', totalKg ? totalKg + ' kg' : '—', eu.cor)}
+      ${t.plano_corrida ? kLinha('Estratégia', esc(textoStints(t.plano_corrida))) : ''}`)}
     ${kCartao('Foco', `<span class="f20 fw7 c-ambar">${foco}</span>${kLinha('Speed trap', (eu.speed_trap || '—') + ' km/h')}`)}
   </div>`;
 }
@@ -696,6 +703,73 @@ function renderCompacto(d, qual) {
   if (d.corrida) return compactoCorrida(d);
   if (d.quali) return compactoQuali(d);
   return compactoTreinos(d);
+}
+
+// ------------------------------------------------------------------ plano de corrida e resumo da sessão
+const nomeConj = (st) => `${TN[st.composto] || st.composto} ${st.novo ? 'novos' : `usados (${st.desgaste}%)`}`;
+function textoPlano(p) {
+  if (!p) return '';
+  if (!p.paragens) return 'Sem paragens até ao fim';
+  return p.stints.slice(1).map((st, k) => `Box V${p.box[k]} → ${nomeConj(st)}`).join(' · ');
+}
+const textoStints = (p) => (p ? p.stints.map((st) => `${TN[st.composto] || st.composto} ${st.voltas}V`).join(' → ') : '');
+function barraStints(stints) {
+  const total = stints.reduce((a, s) => a + s.voltas, 0) || 1;
+  return `<div class="row g4">${stints.map((st) => `<div class="f15 fw7 row jc-c r4" style="flex:${st.voltas / total};min-width:44px;height:30px;background:${TC[st.composto] || TC['?']};color:#0A0C0F">${esc(st.composto)} ${st.voltas}</div>`).join('')}</div>`;
+}
+function cartaoPlano(p) {
+  if (!p) return '';
+  const alt = p.alternativa;
+  return `<div class="cx g2"><span class="f13 m">Plano · ${p.paragens} ${p.paragens === 1 ? 'paragem' : 'paragens'}${alt ? ` · com ${alt.paragens}: +${alt.mais_lento_s} s` : ''}</span>
+    <span class="f18 fw7 c-claro">${esc(textoPlano(p))}</span>
+    <span class="f13 m">Box custa ${p.perda_box_s} s · ${esc(p.perda_box_fonte)}</span></div>`;
+}
+
+function itensResumo(d) {
+  const r = d.resumo, eu = d.eu;
+  const itens = [];
+  let sub = '';
+  if (r.ecra === 'corrida') {
+    const ganho = (r.grelha || 0) - r.posicao;
+    sub = `Partida P${r.grelha || '—'} · <b style="color:${ganho >= 0 ? '#3DDC84' : '#FF4D4D'}">${ganho >= 0 ? '+' : '−'}${Math.abs(ganho)}</b>${r.resultado && r.resultado !== 'Terminou' ? ' · ' + esc(r.resultado) : ''}`;
+  } else if (r.ecra === 'qualificacao') {
+    sub = r.corte ? (r.passou ? `<span class="c-verde">Passaste o corte (top ${r.corte})</span>` : `<span class="c-verm2">Eliminado (corte em P${r.corte})</span>`) : 'Posição de partida';
+  } else sub = 'Na tabela da sessão';
+  itens.push(['Posição final', `<span class="k-grande" style="color:${eu.cor}">P${r.posicao}</span><span class="f18 m">${sub}</span>`]);
+  itens.push(['Melhor volta', `<span class="f40 fw7 c-verde">${fmtV(r.melhor_ms)}</span>
+    <span class="f16 m">${r.mais_rapida ? `Mais rápida: ${esc(r.mais_rapida.codigo)} ${fmtV(r.mais_rapida.ms)}` : ''}${r.para_pole_ms != null ? ` · pole ${fmtD(r.para_pole_ms)}` : ''}</span>`]);
+  if (r.ecra === 'corrida') {
+    itens.push(['Pontos', `<span class="f56 fw7">${r.pontos ?? '—'}</span><span class="f16 m">${r.tempo_total_s ? 'Tempo total ' + fmtV(r.tempo_total_s * 1000) : ''}${r.para_vencedor_s ? ` · +${r.para_vencedor_s.toFixed(3)} s do vencedor` : ''}</span>`]);
+    itens.push(['Paragens e penalizações', `<span class="f40 fw7">${r.paragens ?? 0} ${r.paragens === 1 ? 'paragem' : 'paragens'}</span><span class="f16 m">${r.penalizacoes_s ? `+${r.penalizacoes_s} s de penalização` : 'Sem penalizações'}</span>`]);
+  }
+  if (r.stints && r.stints.length) itens.push(['Stints', `${barraStints(r.stints)}<span class="f16 m">${r.voltas} voltas</span>`]);
+  if (r.tabela && r.tabela.length) {
+    itens.push(['Classificação', `<div class="col g2">${r.tabela.map((c) => `<div class="k-fila${c.eu ? ' eu' : ''}" style="height:28px;${c.eu ? `background:${c.cor}33` : ''}">
+      <span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span><span>${esc(c.codigo)}</span><span class="tr">${c.pontos} pts</span><span></span></div>`).join('')}</div>`]);
+  }
+  if (r.programa) {
+    itens.push(['Programa', `<span class="f40 fw7${r.programa.feitas === r.programa.total ? ' c-verde' : ''}">${r.programa.feitas} de ${r.programa.total}</span>
+      <span class="f16 m">${r.programa.falta.length ? 'Ficou por fazer: ' + r.programa.falta.map(esc).join(', ') : 'Tudo feito'}</span>`]);
+  }
+  if (r.ritmo) itens.push(['Ritmo de corrida', `<span class="f40 fw7">${fmtV(r.ritmo.media_ms)}</span><span class="f16 c-ambar fw6">${fmtD(r.ritmo.degradacao_ms)} s por volta</span>`]);
+  if (r.consumo_volta || r.desgaste_volta) {
+    itens.push(['Medições guardadas', `${r.consumo_volta ? kLinha('Consumo', r.consumo_volta.toFixed(2) + ' kg/volta') : ''}
+      ${r.desgaste_volta ? kLinha('Desgaste (pior pneu)', Math.max(...r.desgaste_volta).toFixed(1) + '%/volta') : ''}
+      <span class="f14 m">Ficam para as próximas sessões neste circuito</span>`]);
+  }
+  if (r.plano_corrida) itens.push(['Estratégia provável para a corrida', `<span class="f24 fw7">${esc(textoStints(r.plano_corrida))}</span><span class="f15 m">${esc(textoPlano(r.plano_corrida))}</span>`]);
+  if (r.proxima) itens.push(['A seguir', `<span class="f40 fw7" style="color:${eu.cor}">${esc(r.proxima)}</span>`]);
+  return itens;
+}
+function renderResumo(d) {
+  const r = d.resumo;
+  return `${cabecalho(d, 'Fim · ' + r.sessao, d.eu.cor, `<span class="f32 fw7">Resumo da sessão</span>${r.fonte ? `<span class="f15 m">${esc(r.fonte)}</span>` : ''}`, '')}
+    <div class="resumo-grelha">${itensResumo(d).map(([t, c]) => kCartao(t, c)).join('')}</div>`;
+}
+function compactoResumo(d) {
+  const r = d.resumo;
+  return `${kTopo(d, 'Fim · ' + r.sessao, '<span class="f20 fw7">Resumo</span>', '')}
+    <div class="k-grelha">${itensResumo(d).map(([t, c]) => kCartao(t, c)).join('')}</div>`;
 }
 
 // ------------------------------------------------------------------ ciclo
@@ -713,7 +787,8 @@ function render() {
   alturaUtil = 952 - (alertas.length ? 72 : 0);
   try {
     let html;
-    if (vistaCompacta()) html = renderCompacto(d, qual);
+    if (d.resumo && def.ecra === 'auto') html = vistaCompacta() ? compactoResumo(d) : renderResumo(d);
+    else if (vistaCompacta()) html = renderCompacto(d, qual);
     else if (qual === 'corrida' && d.corrida) html = renderCorrida(d);
     else if (qual === 'qualificacao' && d.quali) html = renderQuali(d);
     else if (qual === 'treinos' && d.treinos) html = renderTreinos(d);

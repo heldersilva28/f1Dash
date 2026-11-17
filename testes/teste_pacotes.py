@@ -45,6 +45,26 @@ class TestePacotes(unittest.TestCase):
         self.assertEqual(nome, 'sessao')
         self.assertEqual((s['espectador'], s['carro_espectador']), (1, 7))
 
+    def test_sessao_le_duracao_e_fim_de_semana(self):
+        dados = bytearray(pacote_vazio(2026, 1))
+        o = P.CABECALHO.size + P.SESSAO_A.size + 21 * P.ZONA_COMISSARIOS.size + P.SESSAO_B.size + 64 * P.PREVISAO.size
+        c = list(P.SESSAO_C.unpack_from(dados, o))
+        c[20], c[52], c[53:56] = 4, 3, [1, 5, 15]
+        P.SESSAO_C.pack_into(dados, o, *c)
+        _, _, s = P.descodificar(bytes(dados))
+        self.assertEqual((s['duracao_sessao'], s['fim_de_semana']), (4, [1, 5, 15]))
+
+    def test_classificacao_final(self):
+        dados = bytearray(pacote_vazio(2025, 8))
+        o = P.CABECALHO.size
+        dados[o] = 22
+        P.CLASSIFICACAO.pack_into(dados, o + 1, 3, 44, 5, 15, 1, 3, 0, 106100, 4712.5, 5, 1, 2,
+                                  *([0] * 8), 16, 17, *([0] * 6), 18, 44, *([0] * 6))
+        _, nome, fc = P.descodificar(bytes(dados))
+        self.assertEqual(nome, 'classificacao')
+        self.assertEqual((fc[0]['posicao'], fc[0]['pontos'], fc[0]['tempo_total']), (3, 15, 4712.5))
+        self.assertEqual(fc[0]['stints'], [{'visual': 16, 'fim': 18}, {'visual': 17, 'fim': 44}])
+
     def test_simulacao_completa(self):
         for modo in ('corrida', 'qualificacao', 'treinos'):
             with self.subTest(modo=modo):

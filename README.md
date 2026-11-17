@@ -136,8 +136,9 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 | **Tempos** | Volta atual, última, melhor e mais rápida da sessão, com setores a roxo, verde e amarelo. |
 | **Carro** | Dano de cada peça. Os anéis mostram vida dos pneus, temperatura de superfície e interior, e travões. |
 | **Estratégia** | Ritmo das últimas voltas, janela de box e a posição em que voltas à pista se parares agora (dada pelo jogo). |
+| **Plano de corrida** | Diz quando parar e que pneus montar ("Box V26 → Macios novos") e compara com mais uma paragem. Usa o que o jogo envia para cada conjunto (voltas que lhe restam e diferença de ritmo) e o tempo perdido nas boxes, medido nas paragens reais da corrida. |
 | **Energia** | Unidade motriz, bateria ERS, aero ativa, combustível e mensagens da direção de corrida. |
-| **Já sabe o desgaste** | O desgaste e o consumo que mediste nos treinos passam para a corrida, por isso a vida dos pneus aparece logo na primeira volta. |
+| **Vida dos pneus** | As voltas que restam ao conjunto montado, tal como o jogo as calcula. O consumo e o desgaste que mediste nos treinos também passam para a corrida. |
 
 ### ⏱️ Qualificação
 
@@ -146,6 +147,7 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 | | |
 |---|---|
 | **Tabela com linha de corte** | Ajustada à sessão (Q1, Q2 ou Q3) e ao número de carros. |
+| **Saída e entrada** | Os tempos das voltas de saída e de entrada vêm do histórico do jogo, por isso o "ainda dá para mais uma tentativa" funciona desde o início. |
 | **Delta ao vivo** | Contra a tua melhor volta do fim de semana: a da Q1 continua a ser a referência na Q2 e na Q3. Com previsão do tempo e da posição. |
 | **Mini-setores** | 8 por setor, comparados com a tua melhor volta e com a melhor da sessão. |
 | **Números-chave** | Volta ideal, margem para o corte e diferença para a pole. |
@@ -155,7 +157,7 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 
 <img src="imagens/treinos.png" alt="Ecrã de treinos livres" width="100%">
 
-**Programa automático da sessão.** Cada tarefa marca-se sozinha com o que fazes em pista e mostra o progresso (por exemplo "5 de 8 voltas seguidas").
+**Programa automático da sessão.** Cada tarefa marca-se sozinha com o que fazes em pista e mostra o progresso (por exemplo "5 de 8 voltas seguidas"). O programa segue a estrutura do fim de semana que o jogo envia: num fim de semana com sprint, o único treino leva o programa completo.
 
 | Sessão | Programa |
 |---|---|
@@ -168,7 +170,8 @@ Também mostra:
 
 - **Stints e ritmo do stint atual:** média, degradação por volta, consistência e projeção das próximas voltas.
 - **Setores contra os melhores da sessão** e o speed trap.
-- **Desgaste de cada pneu por volta** e vida estimada.
+- **Desgaste de cada pneu por volta** e a vida útil do composto, dada pelo jogo.
+- **Estratégia provável para a corrida**, com os conjuntos de pneus que ainda tens (por exemplo "Duros 18V → Médios 26V").
 - **Combustível para a corrida:** consumo por volta e quanto levar.
 
 <details>
@@ -183,9 +186,17 @@ Procura, por esta ordem:
 3. o número oficial de voltas do circuito, ajustado à duração das tuas corridas (o painel aprende-a sozinho na primeira corrida, por exemplo 50%);
 4. a distância completa.
 
-O ecrã mostra de onde veio o número. A memória fica em `memoria.json`.
+As corridas ficam guardadas por circuito **e pela duração escolhida no jogo**: se mudares de 25% para 50%, o painel não se engana. A corrida sprint não conta, porque o painel sabe pela estrutura do fim de semana qual é a corrida principal. O ecrã mostra de onde veio o número. A memória fica em `memoria.json`.
 
 </details>
+
+### 🏁 Fim da sessão
+
+Quando a sessão acaba, o painel mostra um resumo sozinho, até começar a seguinte:
+
+- **Corrida:** posição, lugares ganhos, pontos, tempo total e diferença para o vencedor, paragens, penalizações, stints e classificação. Tudo vem da classificação final que o jogo envia.
+- **Qualificação:** posição de partida, diferença para a pole e se passaste o corte.
+- **Treinos:** o que ficou por fazer no programa, ritmo de corrida, consumo e desgaste guardados, a estratégia provável e a sessão seguinte.
 
 ### 🚨 Alertas
 
@@ -193,8 +204,8 @@ Por baixo do cabeçalho aparece uma barra com o que precisas de saber já. Fica 
 
 | Nível | Exemplos |
 |---|---|
-| 🔴 **Perigo** | Bandeira vermelha · está a chover e tens pneus de seco · pneus no limite, box nas próximas voltas |
-| 🟡 **Aviso** | Safety Car / VSC · bandeira amarela · chuva prevista nos próximos 30 min · asa da frente danificada · pneus a sobreaquecer · combustível curto |
+| 🔴 **Perigo** | Bandeira vermelha · drive-through ou stop & go por cumprir · delta negativo com Safety Car ou VSC · está a chover e tens pneus de seco · pneus no limite |
+| 🟡 **Aviso** | Safety Car / VSC com o delta · bandeira amarela daqui a X metros (pelas zonas dos comissários) · bandeira azul · avisos de limites de pista · box nesta volta, pelo plano · chuva prevista · asa danificada · pneus a sobreaquecer · combustível curto |
 | 🔵 **Informação** | Janela de box aberta · modo espectador |
 
 > [!NOTE]

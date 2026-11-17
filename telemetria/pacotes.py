@@ -33,9 +33,10 @@ SESSAO_B = struct.Struct('<BBB')
 PREVISAO = struct.Struct('<BBBbbbbB')                               # 8
 SESSAO_C = struct.Struct('<BBIII' + 'B' * 14 + 'I' + 'B' * 33 + '12Bff')  # 85
 SESSAO_2026 = struct.Struct('<BB64sB64sB32sfBBBBB')                 # zonas de aero ativa / DRS + assistências
+CLASSIFICACAO = struct.Struct('<7BIdBBB8B8B8B')                     # 46 (classificação final, por carro)
 
 TAMANHOS_OFICIAIS = {
-    2025: {1: 753, 2: 1285, 3: 45, 4: 1284, 6: 1352, 7: 1239, 10: 1041, 11: 1460, 12: 231},
+    2025: {1: 753, 2: 1285, 3: 45, 4: 1284, 6: 1352, 7: 1239, 8: 1042, 10: 1041, 11: 1460, 12: 231},
     2026: {1: 926, 2: 1399, 3: 45, 4: 1470, 6: 1448, 7: 1445, 10: 1133, 11: 1460, 12: 231, 16: 269},
 }
 MAX_CARROS = {2025: 22, 2026: 24}
@@ -57,6 +58,9 @@ def tamanho_esperado(fmt, pid):
         return h + n * TELEMETRIA[fmt].size + 3
     if pid == 7:
         return h + n * ESTADO[fmt].size
+    if pid == 8:
+        # no formato 2026 o tamanho não está confirmado: se o jogo mandar outro, o pacote é ignorado
+        return h + 1 + n * CLASSIFICACAO.size
     if pid == 10:
         return h + n * DANOS.size
     if pid == 11:
@@ -123,9 +127,13 @@ def ler_sessao(dados, fmt):
                          'temp_ar': p[5], 'chuva': p[7]})
     s['previsao'] = prev
     c = SESSAO_C.unpack_from(dados, o); o += SESSAO_C.size
+    s['fim_de_semana_id'] = c[3]
     s['box_ideal'] = c[5]
     s['box_ultima'] = c[6]
     s['box_reentrada'] = c[7]
+    s['duracao_sessao'] = c[20]          # 0 nenhuma, 2 muito curta, 3 curta, 4 média, 5 média-longa, 6 longa, 7 completa
+    n_sessoes = c[52]
+    s['fim_de_semana'] = [t for t in c[53:53 + min(n_sessoes, 12)] if t]   # tipos de sessão, por ordem
     s['setor2_inicio'] = c[-2]
     s['setor3_inicio'] = c[-1]
     s['aero_zonas'] = []
@@ -148,9 +156,11 @@ def ler_voltas(dados, fmt):
             'para_frente': _ms(v[6], v[7]), 'para_lider': _ms(v[8], v[9]),
             'dist_volta': v[10], 'dist_total': v[11],
             'posicao': v[13], 'volta': v[14], 'box_estado': v[15], 'paragens': v[16],
-            'setor': v[17], 'invalida': v[18], 'penalizacoes': v[19], 'avisos': v[20],
+            'delta_sc': v[12],
+            'setor': v[17], 'invalida': v[18], 'penalizacoes': v[19], 'avisos': v[20], 'avisos_limites': v[21],
+            'drive_through': v[22], 'stop_go': v[23],
             'grelha': v[24], 'estado_piloto': v[25], 'resultado': v[26],
-            'box_tempo_via': v[28], 'speed_trap': v[31],
+            'box_tempo_via': v[28], 'cumpre_penalizacao': v[30], 'speed_trap': v[31],
         })
     return carros
 
@@ -173,7 +183,21 @@ def ler_evento(dados):
         ev['carro'] = p[0]
     elif codigo in ('DTSV', 'SGSV'):
         ev['carro'] = p[0]
-    return ev
+    return ev   # SEND (fim da sessão), RDFL (bandeira vermelha), LGOT (luzes apagadas) não trazem dados
+
+
+def ler_classificacao(dados, fmt):
+    o = CABECALHO.size
+    n = dados[o]; o += 1
+    carros = []
+    for _ in range(MAX_CARROS[fmt]):
+        v = CLASSIFICACAO.unpack_from(dados, o); o += CLASSIFICACAO.size
+        ns = v[11]
+        carros.append({'posicao': v[0], 'voltas': v[1], 'grelha': v[2], 'pontos': v[3], 'paragens': v[4],
+                       'resultado': v[5], 'motivo': v[6], 'melhor_ms': v[7], 'tempo_total': v[8],
+                       'penalizacoes_s': v[9], 'n_penalizacoes': v[10],
+                       'stints': [{'visual': v[20 + k], 'fim': v[28 + k]} for k in range(min(ns, 8))]})
+    return carros[:n] if n <= len(carros) else carros
 
 
 def ler_participantes(dados, fmt):
@@ -226,7 +250,7 @@ def ler_estado(dados, fmt):
         v = est.unpack_from(dados, o); o += est.size
         c = {
             'combustivel': v[5], 'capacidade': v[6], 'combustivel_voltas': v[7],
-            'drs_permitido': v[11], 'composto_real': v[13], 'composto': v[14], 'idade_pneus': v[15],
+            'drs_permitido': v[11], 'drs_dist': v[12], 'composto_real': v[13], 'composto': v[14], 'idade_pneus': v[15],
             'bandeira': v[16], 'ers': v[19], 'ers_modo': v[20],
             'ers_mguk': v[21], 'ers_mguh': v[22],
         }
@@ -286,7 +310,7 @@ def ler_conjuntos(dados):
 
 
 LEITORES = {1: 'sessao', 2: 'voltas', 3: 'evento', 4: 'participantes', 6: 'telemetria',
-            7: 'estado', 10: 'danos', 11: 'historico', 12: 'conjuntos', 16: 'telemetria2'}
+            7: 'estado', 8: 'classificacao', 10: 'danos', 11: 'historico', 12: 'conjuntos', 16: 'telemetria2'}
 
 
 def descodificar(dados):
@@ -319,6 +343,8 @@ def descodificar(dados):
         c = ler_danos(dados, fmt)
     elif nome == 'historico':
         c = ler_historico(dados)
+    elif nome == 'classificacao':
+        c = ler_classificacao(dados, fmt)
     else:
         c = ler_conjuntos(dados)
     return cab, nome, c

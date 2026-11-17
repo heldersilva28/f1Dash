@@ -133,6 +133,84 @@ def desvio(ys):
     return math.sqrt(sum((y - m) ** 2 for y in ys) / len(ys))
 
 
+SECOS = ('S', 'M', 'H')
+NOMES_COMPOSTOS = {'S': 'Macios', 'M': 'Médios', 'H': 'Duros', 'I': 'Intermédios', 'W': 'Chuva'}
+
+
+def _repartir(voltas, conjuntos):
+    """Distribui as voltas pelos stints: cada um com pelo menos 1 volta e no máximo a vida que o jogo dá
+    ao conjunto; as voltas que sobram vão para os conjuntos mais rápidos. Devolve None se não chegar."""
+    if sum(c['vida'] for c in conjuntos) < voltas or len(conjuntos) > voltas:
+        return None
+    rep = [1] * len(conjuntos)
+    resto = voltas - len(conjuntos)
+    for k in sorted(range(len(conjuntos)), key=lambda k: conjuntos[k]['delta']):
+        mais = min(resto, conjuntos[k]['vida'] - 1)
+        rep[k] += mais
+        resto -= mais
+    return rep
+
+
+def planear(voltas, conjuntos, atual=None, perda_box_ms=22000, usados=(), volta_atual=1, janela=None, max_paragens=2):
+    """Escolhe a estratégia mais rápida com os dados que o jogo envia para cada conjunto de pneus:
+    voltas que lhe restam (vida) e diferença de ritmo por volta para o conjunto montado (delta, ms).
+
+    voltas: voltas que faltam (contando a atual); conjuntos: candidatos para os stints seguintes;
+    atual: o conjunto montado (o primeiro stint) ou None antes da corrida; usados: compostos já usados.
+    Devolve a lista de planos, do mais rápido para o mais lento (um por número de paragens)."""
+    if voltas <= 0 or not conjuntos and not atual:
+        return []
+    # conjuntos iguais (mesmo composto e desgaste) contam como um tipo com quantidade
+    tipos = {}
+    for c in conjuntos:
+        tipos.setdefault((c['composto'], c['desgaste']), dict(c, qtd=0))['qtd'] += 1
+    tipos = list(tipos.values())
+    planos = {}
+
+    def combinacoes(n, desde=0):
+        if n == 0:
+            yield []
+            return
+        for k in range(desde, len(tipos)):
+            for resto in combinacoes(n - 1, k):
+                seq = [tipos[k]] + resto
+                if all(seq.count(t) <= t['qtd'] for t in seq):
+                    yield seq
+
+    for paragens in range(0, max_paragens + 1):
+        n_novos = paragens if atual else paragens + 1
+        if n_novos == 0 and not atual:
+            continue
+        for seq in combinacoes(n_novos):
+            seq = sorted(seq, key=lambda c: -c['delta'])           # o mais rápido fica para o fim
+            stints = ([atual] if atual else []) + seq
+            secos = {c['composto'] for c in stints} | set(usados)
+            if secos <= set(SECOS) and len(secos) < 2:
+                continue                                           # regra: dois compostos de seco na corrida
+            rep = _repartir(voltas, stints)
+            if not rep:
+                continue
+            if janela and atual and paragens == 1:
+                # se der, a paragem fica na janela que o jogo recomenda
+                ideal, ultima = janela
+                lo, hi = max(1, voltas - stints[1]['vida']), min(stints[0]['vida'], voltas - 1)
+                alvo = min(max(ideal - volta_atual + 1, lo), hi)
+                custo = lambda k: k * stints[0]['delta'] + (voltas - k) * stints[1]['delta']
+                if lo <= alvo <= hi and custo(alvo) - custo(rep[0]) < 2000:
+                    rep = [alvo, voltas - alvo]
+            tempo = sum(r * c['delta'] for r, c in zip(rep, stints)) + paragens * perda_box_ms
+            fim, lista = volta_atual - 1, []
+            for r, c in zip(rep, stints):
+                fim += r
+                lista.append({'composto': c['composto'], 'novo': c['desgaste'] == 0, 'desgaste': c['desgaste'],
+                              'voltas': r, 'ate_volta': fim})
+            plano = {'paragens': paragens, 'stints': lista, 'tempo_ms': int(tempo),
+                     'box': [st['ate_volta'] for st in lista[:-1]]}
+            if paragens not in planos or tempo < planos[paragens]['tempo_ms']:
+                planos[paragens] = plano
+    return sorted(planos.values(), key=lambda p: p['tempo_ms'])
+
+
 class Sessao:
     N_MINI = 8   # mini-setores por setor
 
@@ -168,6 +246,10 @@ class Sessao:
         self.volta_rapida = None
         self.paragens_vistas = {}
         self.dist_anterior = {}      # carro -> distância na volta no último pacote (para detetar flashbacks)
+        self.bandeira_vermelha = False   # o jogo avisa com eventos: RDFL (vermelha) e LGOT (nova partida)
+        self.fim_sessao = False          # evento SEND, ou o teu resultado final na corrida
+        self.classificacao = None        # pacote de classificação final (fim da corrida)
+        self.perda_box_guardada = None
         # mini-setores de todos os carros
         self.mini_atual = {}         # carro -> {idx: tempo acumulado}
         self.mini_volta = {}         # carro -> número da volta a que mini_atual pertence
@@ -177,6 +259,8 @@ class Sessao:
     def _reiniciar_jogador(self):
         """Dados que só fazem sentido para o carro que estamos a seguir."""
         self.conjuntos = None
+        self.conjunto_montado = None
+        self.avisos_limites = (0, 0.0)   # (quantos, quando mudou) — para mostrar o aviso durante uns segundos
         self.minha_volta = None
         self.inicio_volta = {}      # combustível e desgaste no início da volta atual
         self.consumos = deque(maxlen=10)
@@ -249,9 +333,13 @@ class Sessao:
             elif nome == 'historico':
                 self.historico[c['carro']] = c
             elif nome == 'conjuntos':
-                carro, conj, _ = c
+                carro, conj, montado = c
                 if carro == self.jogador:
                     self.conjuntos = conj
+                    self.conjunto_montado = montado if montado < len(conj) else None
+            elif nome == 'classificacao':
+                self.classificacao = c
+                self.fim_sessao = True
 
     # ------------------------------------------------------------ ajudas
     def _cod(self, i):
@@ -296,40 +384,70 @@ class Sessao:
         return lim  # 24 fins de segmento
 
     # ------------------------------------------------------------ voltas da corrida (automático)
+    def _e_corrida_principal(self, s):
+        """Num fim de semana com sprint há duas corridas: a principal é a última da estrutura que o jogo envia."""
+        if not (15 <= s.get('tipo', 0) <= 17):
+            return False
+        corridas = [t for t in s.get('fim_de_semana') or [] if 15 <= t <= 17]
+        return not corridas or s['tipo'] == corridas[-1]
+
     def _aprender_corrida(self, s):
-        """Numa corrida, guarda quantas voltas tem e a duração escolhida (percentagem da distância real)."""
-        if not (15 <= s['tipo'] <= 17) or not s['voltas_total']:
+        """Na corrida principal, guarda quantas voltas tem, por circuito e pela duração escolhida no jogo."""
+        if not self._e_corrida_principal(s) or not s['voltas_total']:
             return
         completas = voltas_completas(s['pista'], s['comprimento'])
         m = self.memoria
-        chave = str(s['pista'])
+        dur = s.get('duracao_sessao') or 0
+        chave = f"{s['pista']}:{dur}"
         if m.get('corridas', {}).get(chave) == s['voltas_total']:
             return
         m.setdefault('corridas', {})[chave] = s['voltas_total']
         if completas:
-            m['percentagem'] = round(s['voltas_total'] / completas, 3)
+            pct = round(s['voltas_total'] / completas, 3)
+            m.setdefault('percentagem_por_duracao', {})[str(dur)] = pct
+            m['percentagem'] = pct
         self._persistir()
 
     def voltas_corrida(self):
         """Devolve (voltas, de onde vem o número)."""
         s = self.sessao or {}
         total = s.get('voltas_total') or 0
-        completas = voltas_completas(s.get('pista'), s.get('comprimento'))
+        pista = s.get('pista')
+        completas = voltas_completas(pista, s.get('comprimento'))
         if 15 <= s.get('tipo', 0) <= 17 and total:
             return total, 'da corrida'
-        guardada = self.memoria.get('corridas', {}).get(str(s.get('pista')))
-        pct = self.memoria.get('percentagem')
-        if completas and 3 <= total <= completas + 2 and total != guardada:
+        dur = s.get('duracao_sessao') or 0
+        corridas = self.memoria.get('corridas', {})
+        guardada = corridas.get(f'{pista}:{dur}')
+        pct = self.memoria.get('percentagem_por_duracao', {}).get(str(dur))
+        plausivel = completas and 3 <= total <= completas + 2
+        if plausivel and total != guardada:
             return total, 'do jogo'
         if guardada:
-            return guardada, 'da última corrida aqui'
+            return guardada, 'da última corrida aqui, com esta duração'
+        if pct and completas:
+            return max(3, round(completas * pct)), f'{round(pct * 100)}% da distância, a duração escolhida no jogo'
+        antiga = corridas.get(str(pista))              # memória de versões anteriores (sem a duração)
+        if antiga:
+            return antiga, 'da última corrida aqui'
+        pct = self.memoria.get('percentagem')
         if pct and completas:
             return max(3, round(completas * pct)), f'{round(pct * 100)}% da distância, como nas tuas corridas'
-        if completas and 3 <= total <= completas + 2:
+        if plausivel:
             return total, 'do jogo'
         if completas:
             return completas, 'distância completa'
         return None, ''
+
+    def _proxima_sessao(self):
+        """A sessão seguinte do fim de semana, pela estrutura que o jogo envia."""
+        s = self.sessao or {}
+        fds = s.get('fim_de_semana') or []
+        if s.get('tipo') in fds:
+            k = fds.index(s['tipo'])
+            if k + 1 < len(fds):
+                return SESSOES.get(fds[k + 1])
+        return None
 
     # ------------------------------------------------------------ medições guardadas por circuito
     def _guardar_medicoes(self):
@@ -372,7 +490,12 @@ class Sessao:
             acao = {0: 'em pista', 1: 'vai recolher', 2: 'recolheu', 3: 'corrida retomada'}.get(ev['evento'], '')
             self._msg(f'{tipo} — {acao}', '#F5C518')
         elif cod == 'RDFL':
+            self.bandeira_vermelha = True
             self._msg('Bandeira vermelha', '#FF4D4D')
+        elif cod in ('LGOT', 'SSTA'):
+            self.bandeira_vermelha = False
+        elif cod == 'SEND':
+            self.fim_sessao = True
         elif cod == 'CHQF':
             self._msg('Bandeira de xadrez', '#F2F4F7')
         elif cod == 'RCWN':
@@ -387,6 +510,13 @@ class Sessao:
         anterior = self.voltas
         self.voltas = voltas
         lim = self._limites_mini()
+        j = self.jogador
+        if j < len(voltas):
+            if self.sessao and 15 <= self.sessao['tipo'] <= 17 and voltas[j]['resultado'] >= 3:
+                self.fim_sessao = True       # terminaste (ou abandonaste): o jogo dá o resultado final
+            n = voltas[j]['avisos_limites']
+            if n != self.avisos_limites[0]:
+                self.avisos_limites = (n, time.time())
         for i, v in enumerate(voltas):
             if v['resultado'] < 2:
                 continue
@@ -395,7 +525,7 @@ class Sessao:
             if p0 is not None and v['paragens'] > p0:
                 comp = {'S': 'Macios', 'M': 'Médios', 'H': 'Duros', 'I': 'Intermédios', 'W': 'Chuva'}.get(self._composto(i), '')
                 self._msg('{c} — box' + (f', {comp}' if comp else ''), '#98A2B3', v['volta'], carro=i)
-            self.paragens_vistas[i] = v['paragens']
+            self.paragens_vistas[i] = max(p0 or 0, v['paragens'])   # um flashback não repete a mensagem
             # mini-setores
             d = v['dist_volta']
             if self.mini_volta.get(i) != v['volta']:
@@ -565,7 +695,8 @@ class Sessao:
                 'duracao': s['duracao'], 'temp_ar': s['temp_ar'], 'temp_pista': s['temp_pista'],
                 'meteo': METEO.get(s['tempo_meteo'], ''), 'safety_car': s['safety_car'],
                 'previsao': self._previsao(), 'box_ideal': s['box_ideal'], 'box_ultima': s['box_ultima'],
-                'box_reentrada': s['box_reentrada'],
+                'box_reentrada': s['box_reentrada'], 'bandeira_vermelha': self.bandeira_vermelha,
+                'proxima': self._proxima_sessao(), 'zona_amarela_m': self._amarela_a_frente(),
             },
         }
         vc, fonte = self.voltas_corrida()
@@ -587,7 +718,87 @@ class Sessao:
             out['treinos'] = self._treinos(carros)
         out['sessao']['chuva'] = self._chuva_prevista()
         out['alertas'] = self._alertas(out)
+        if self.fim_sessao:
+            out['resumo'] = self._resumo(out)
         return out
+
+    RESULTADOS = {3: 'Terminou', 4: 'Não terminou', 5: 'Desclassificado', 6: 'Não classificado', 7: 'Desistiu'}
+
+    def _resumo(self, out):
+        """Resumo da sessão que acabou, com o que o jogo enviou (classificação final, histórico de voltas)."""
+        j, s, eu = self.jogador, self.sessao, out['eu']
+        h = self.historico.get(j)
+        voltas = [v for v in (h['voltas'] if h else []) if v['tempo']]
+        stints, inicio = [], 1
+        for st in (h['stints'] if h else []):
+            fim = st['fim'] if st['fim'] != 255 else len(h['voltas'])
+            stints.append({'composto': COMPOSTOS.get(st['visual'], '?'), 'voltas': max(fim - inicio + 1, 0)})
+            inicio = fim + 1
+        r = {'sessao': SESSOES.get(s['tipo'], 'Sessão'), 'ecra': out['ecra'], 'proxima': self._proxima_sessao(),
+             'posicao': eu['pos'], 'melhor_ms': eu.get('melhor_ms'), 'voltas': len(voltas), 'stints': stints,
+             'consumo_volta': eu.get('consumo_volta'), 'desgaste_volta': eu.get('desgaste_volta')}
+        vr = out.get('volta_rapida')
+        if vr:
+            r['mais_rapida'] = {'codigo': vr['codigo'], 'ms': vr['ms']}
+        if out['ecra'] == 'corrida':
+            r.update({'grelha': eu.get('grelha'), 'paragens': eu.get('paragens'),
+                      'resultado': self.RESULTADOS.get(self.voltas[j]['resultado'], '')})
+            fc = self.classificacao
+            if fc and j < len(fc) and fc[j]['posicao']:
+                c = fc[j]
+                r.update({'posicao': c['posicao'], 'grelha': c['grelha'], 'pontos': c['pontos'],
+                          'paragens': c['paragens'], 'tempo_total_s': round(c['tempo_total'], 3),
+                          'penalizacoes_s': c['penalizacoes_s'], 'resultado': self.RESULTADOS.get(c['resultado'], ''),
+                          'melhor_ms': c['melhor_ms'] or r['melhor_ms'], 'voltas': c['voltas'],
+                          'fonte': 'classificação final do jogo'})
+                tabela = sorted((k for k, x in enumerate(fc) if x['posicao']), key=lambda k: fc[k]['posicao'])
+                r['tabela'] = [{'pos': fc[k]['posicao'], 'codigo': self._cod(k), 'cor': self._cor(k),
+                                'pontos': fc[k]['pontos'], 'eu': k == j} for k in tabela if fc[k]['posicao'] <= 10 or k == j]
+                fim_ant, r['stints'] = 0, []
+                for st in c['stints']:
+                    r['stints'].append({'composto': COMPOSTOS.get(st['visual'], '?'), 'voltas': st['fim'] - fim_ant})
+                    fim_ant = st['fim']
+                vencedor = next((k for k, x in enumerate(fc) if x['posicao'] == 1), None)
+                if vencedor is not None and vencedor != j and fc[vencedor]['tempo_total'] and c['tempo_total'] \
+                        and c['voltas'] == fc[vencedor]['voltas']:
+                    r['para_vencedor_s'] = round(c['tempo_total'] - fc[vencedor]['tempo_total'], 3)
+        elif out['ecra'] == 'qualificacao':
+            q = out.get('quali') or {}
+            ordem = q.get('ordem') or []
+            if j in ordem:
+                r['posicao'] = ordem.index(j) + 1
+            if q.get('pole_ms') and r['melhor_ms']:
+                r['para_pole_ms'] = r['melhor_ms'] - q['pole_ms']
+            if q.get('corte'):
+                r['passou'] = r['posicao'] <= q['corte']
+                r['corte'] = q['corte']
+        else:
+            t = out.get('treinos') or {}
+            prog = t.get('programa') or []
+            r['programa'] = {'feitas': sum(1 for p in prog if p['feito']), 'total': len(prog),
+                             'falta': [p['nome'] for p in prog if not p['feito']]}
+            if t.get('longo'):
+                r['ritmo'] = {'media_ms': t['longo']['media_ms'], 'degradacao_ms': t['longo']['degradacao_ms']}
+            r['plano_corrida'] = t.get('plano_corrida')
+        return r
+
+    def _amarela_a_frente(self):
+        """Metros até à próxima zona com bandeira amarela (0 se já estás dentro dela), pelas zonas dos comissários."""
+        s, j = self.sessao, self.jogador
+        zonas = sorted(s.get('zonas') or [], key=lambda z: z['inicio'])
+        if not zonas or j >= len(self.voltas):
+            return None
+        L = self._comprimento()
+        f = (self.voltas[j]['dist_volta'] / L) % 1
+        melhor = None
+        for k, z in enumerate(zonas):
+            if z['bandeira'] != 3:
+                continue
+            fim = zonas[k + 1]['inicio'] if k + 1 < len(zonas) else 1.0
+            dentro = z['inicio'] <= f < fim
+            m = 0 if dentro else round(((z['inicio'] - f) % 1) * L)
+            melhor = m if melhor is None else min(melhor, m)
+        return melhor
 
     def _chuva_prevista(self):
         """Primeira previsão desta sessão, nos próximos 30 min, com probabilidade de chuva de 40% ou mais."""
@@ -607,14 +818,28 @@ class Sessao:
 
         em_pista = eu.get('estado_piloto', 0) != 0 and not eu.get('box')
         bandeira = eu.get('bandeira')
-        if bandeira == 4:
-            alerta('vermelha', 'perigo', 'Bandeira vermelha')
-        if s['safety_car'] == 1:
-            alerta('sc', 'aviso', 'Safety Car em pista')
-        elif s['safety_car'] == 2:
-            alerta('sc', 'aviso', 'Virtual Safety Car')
-        elif bandeira == 3:
-            alerta('amarela', 'aviso', 'Bandeira amarela — cuidado à frente')
+        if s.get('bandeira_vermelha'):
+            alerta('vermelha', 'perigo', 'Bandeira vermelha — sessão suspensa')
+        if eu.get('drive_through') or eu.get('stop_go'):
+            qual = 'Stop & go' if eu.get('stop_go') else 'Drive-through'
+            alerta('penal', 'perigo', f'{qual} por cumprir' + (' — cumpres nesta paragem' if eu.get('cumpre_penalizacao') else ''))
+        if s['safety_car'] in (1, 2):
+            nome = 'Safety Car' if s['safety_car'] == 1 else 'Virtual Safety Car'
+            d = eu.get('delta_sc')
+            if d is not None and d < 0:
+                alerta('sc', 'perigo', f'{nome} · delta {d:+.1f} s — abranda')
+            else:
+                alerta('sc', 'aviso', nome + (f' · delta {d:+.1f} s' if d is not None else ''))
+        amarela = s.get('zona_amarela_m')
+        if bandeira == 3 or amarela == 0:
+            alerta('amarela', 'aviso', 'Bandeira amarela — sem ultrapassagens')
+        elif amarela is not None and amarela <= 1500 and em_pista:
+            alerta('amarela', 'aviso', f'Bandeira amarela daqui a {amarela} m')
+        if bandeira == 2:
+            alerta('azul', 'aviso', 'Bandeira azul — deixa passar')
+        n, quando = self.avisos_limites
+        if n and time.time() - quando < 15:
+            alerta('limites', 'aviso', f"{n} {'aviso' if n == 1 else 'avisos'} de limites de pista")
         # tempo
         seco = eu.get('composto') in ('S', 'M', 'H')
         a_chover = (self.sessao.get('tempo_meteo') or 0) >= 3
@@ -638,6 +863,12 @@ class Sessao:
                 alerta('box', 'perigo', 'Pneus no limite — box ' + ('nesta volta' if vida == 0 else f'nas próximas {vida} voltas'))
             elif s['box_ideal'] and s['box_ideal'] <= eu.get('volta', 0) <= (s['box_ultima'] or s['box_ideal']):
                 alerta('box', 'info', f"Janela de box aberta até à volta {s['box_ultima'] or s['box_ideal']}")
+            plano = (out.get('corrida') or {}).get('plano')
+            if plano and plano['box'] and plano['box'][0] == eu.get('volta') and not eu.get('box') \
+                    and not any(a['id'] == 'box' and a['nivel'] == 'perigo' for a in res):
+                prox = plano['stints'][1]
+                res[:] = [a for a in res if a['id'] != 'box']
+                alerta('box', 'aviso', f"Box nesta volta — {NOMES_COMPOSTOS[prox['composto']]} {'novos' if prox['novo'] else 'usados'}")
             margem = eu.get('margem_voltas')
             if margem is not None and margem < -0.2:
                 alerta('fuel', 'aviso', f'Combustível curto: faltam {abs(margem):.1f} voltas — poupa')
@@ -697,6 +928,9 @@ class Sessao:
             'codigo': self._cod(j), 'cor': self._cor(j), 's1_ms': v['s1'], 's2_ms': v['s2'],
             'nome': self.participantes[j]['nome'] if j < len(self.participantes) else '',
             'box': v['box_estado'] > 0, 'referencia_origem': self.referencia_origem,
+            'delta_sc': round(v['delta_sc'], 1) if self.sessao['safety_car'] in (1, 2) else None,
+            'drive_through': v['drive_through'], 'stop_go': v['stop_go'],
+            'cumpre_penalizacao': bool(v['cumpre_penalizacao']), 'avisos_limites': v['avisos_limites'],
         }
         h = self.historico.get(j)
         if h and h['melhor_volta'] and h['melhor_volta'] <= len(hist):
@@ -720,6 +954,7 @@ class Sessao:
                 'ers_usado_mj': round(est['ers_usado'] / 1e6, 1), 'ers_limite_mj': round(est['ers_limite'] / 1e6, 1),
                 'bandeira': est['bandeira'],
             })
+        eu['ajuda'] = self._ajuda(j)
         if tel:
             eu.update({'pneus_sup': tel['pneus_sup'], 'pneus_int': tel['pneus_int'], 'travoes': tel['travoes_temp'],
                        'pressao': tel['pressao'], 'motor_temp': tel['motor_temp'], 'velocidade': tel['velocidade']})
@@ -753,8 +988,97 @@ class Sessao:
                     eu['vida_restante_voltas'] = max(0, int(min(restos)))
                     eu['pneu_limite'] = pior
                     eu['vida_total_voltas'] = int(max(0, min(restos)) + (est['idade_pneus'] if est else 0))
+                    eu['vida_fonte'] = 'pelo desgaste medido'
+        # o jogo diz quantas voltas restam ao conjunto montado: é a fonte preferida
+        montado = self._conjunto_atual()
+        if montado:
+            eu['vida_restante_voltas'] = montado['vida']
+            eu['vida_total_voltas'] = montado['vida_util']
+            eu['vida_fonte'] = 'do jogo'
         eu['speed_trap'] = round(v['speed_trap'] or 0)
         return eu
+
+    def _ajuda(self, i):
+        """DRS (regras 2025) ou Overtake (regras 2026), como o jogo os indica para o carro i."""
+        t2 = self.telem2[i] if self.telem2 and i < len(self.telem2) else None
+        if t2 and t2['regras_2026']:
+            return {'nome': 'Overtake', 'disp': bool(t2['ovtk_disp']), 'ativo': bool(t2['ovtk_ativo']), 'dist': None}
+        est = self.estado[i] if self.estado and i < len(self.estado) else None
+        if est:
+            return {'nome': 'DRS', 'disp': bool(est['drs_permitido']), 'ativo': False, 'dist': est.get('drs_dist') or None}
+        return None
+
+    # ------------------------------------------------------------ pneus (dados do jogo por conjunto)
+    def _conjunto_atual(self):
+        conj, k = self.conjuntos, self.conjunto_montado
+        if conj and k is not None and k < len(conj) and conj[k]['vida_util']:
+            return self._conjunto(conj[k])
+        return None
+
+    def _conjunto(self, c):
+        return {'composto': COMPOSTOS.get(c['visual'], '?'), 'desgaste': c['desgaste'], 'vida': c['vida'],
+                'vida_util': c['vida_util'], 'delta': c['delta'] if self.conjunto_montado is not None else 0}
+
+    def _conjuntos_livres(self, molhado=False):
+        """Conjuntos que ainda podes montar (sem o que já tens montado), só de seco ou só de chuva."""
+        res = []
+        for k, c in enumerate(self.conjuntos or []):
+            comp = COMPOSTOS.get(c['visual'], '?')
+            if not c['disponivel'] or k == self.conjunto_montado or c['vida'] <= 0:
+                continue
+            if (comp in ('I', 'W')) == molhado and comp != '?':
+                res.append(self._conjunto(c))
+        return res
+
+    def _perda_box(self):
+        """Tempo perdido numa paragem, medido nas paragens desta corrida (volta de entrada + volta de saída
+        contra o ritmo normal de cada piloto). Sem paragens ainda, usa a da última corrida neste circuito."""
+        perdas = []
+        if self.sessao and 15 <= self.sessao['tipo'] <= 17:
+            for h in self.historico.values():
+                voltas = h['voltas']
+                limpos = sorted(v['tempo'] for k, v in enumerate(voltas, start=1) if v['tempo'] and v['valida'] and k > 1)
+                if len(limpos) < 3:
+                    continue
+                ref = limpos[len(limpos) // 2]
+                for st in h['stints'][:-1]:
+                    e = st['fim']
+                    if not e or e == 255 or e >= len(voltas):
+                        continue
+                    entrada, saida = voltas[e - 1]['tempo'], voltas[e]['tempo']
+                    if entrada and saida and 8000 < entrada + saida - 2 * ref < 45000:
+                        perdas.append(entrada + saida - 2 * ref)
+        if perdas:
+            perda = sorted(perdas)[len(perdas) // 2]
+            p = self.memoria.setdefault('pistas', {}).setdefault(str(self.sessao['pista']), {})
+            if abs(p.get('perda_box', 0) - perda) >= 500:
+                p['perda_box'] = int(perda)
+                self._persistir()
+            return int(perda), f'medida em {len(perdas)} paragens desta corrida'
+        guardada = self._medicoes_pista().get('perda_box')
+        if guardada:
+            return guardada, 'medida na última corrida aqui'
+        return 22000, 'estimada até haver uma paragem'
+
+    def _plano(self, voltas_restantes, volta_atual, atual, usados, janela=None):
+        molhado = (self.sessao.get('tempo_meteo') or 0) >= 3 or (atual and atual['composto'] in ('I', 'W'))
+        livres = self._conjuntos_livres(molhado)
+        if not livres and not atual:
+            return None
+        perda, fonte = self._perda_box()
+        planos = planear(voltas_restantes, livres, atual, perda, () if molhado else usados, volta_atual, janela)
+        if not planos:
+            return None
+        melhor = dict(planos[0], perda_box_s=round(perda / 1000, 1), perda_box_fonte=fonte, molhado=bool(molhado))
+        if len(planos) > 1:
+            alt = planos[1]
+            melhor['alternativa'] = {'paragens': alt['paragens'], 'stints': alt['stints'],
+                                     'mais_lento_s': round((alt['tempo_ms'] - planos[0]['tempo_ms']) / 1000, 1)}
+        return melhor
+
+    def _compostos_usados(self, j):
+        h = self.historico.get(j)
+        return {COMPOSTOS.get(st['visual'], '?') for st in (h['stints'] if h else [])} & set(SECOS)
 
     def _setores_ultima(self, j):
         hist = self._voltas_hist(j)
@@ -848,9 +1172,10 @@ class Sessao:
             dif = None
             if r and meu_ritmo:
                 dif = (r - meu_ritmo) / 1000 if frente else (meu_ritmo - r) / 1000
+            ajuda = self._ajuda(c['idx'])
             return {'codigo': c['codigo'], 'pos': c['pos'], 'composto': c['composto'], 'idade': c['idade'],
                     'gap_s': round(gap, 3), 'ritmo_ms': r, 'diferenca_volta': round(dif, 2) if dif is not None else None,
-                    'voltas_atras': c['voltas_atras']}
+                    'voltas_atras': c['voltas_atras'], 'ajuda_disp': bool(ajuda and ajuda['disp'])}
 
         if idx_eu > 0:
             res['frente'] = vizinho(idx_eu - 1, True)
@@ -869,6 +1194,15 @@ class Sessao:
                 res['reentrada'] = {'pos': reent, 'atras_de': f['codigo']}
             else:
                 res['reentrada'] = {'pos': reent, 'atras_de': None}
+        # plano de corrida com os conjuntos de pneus que o jogo diz que tens
+        s = self.sessao
+        v = self.voltas[j]
+        total = s['voltas_total'] or 0
+        atual = self._conjunto_atual()
+        if total and atual and v['resultado'] == 2:
+            janela = (s['box_ideal'], s['box_ultima'] or s['box_ideal']) if s['box_ideal'] else None
+            usados = self._compostos_usados(j) | {atual['composto']}
+            res['plano'] = self._plano(total - v['volta'] + 1, v['volta'], atual, usados, janela)
         return res
 
     # ------------------------------------------------------------ qualificação
@@ -906,8 +1240,12 @@ class Sessao:
         # tráfego à volta do jogador
         res['trafego'] = self._trafego(carros)
         # tempo para mais uma tentativa
-        saida = media(list(self.tempos_saida)) or 120000
-        entrada = media(list(self.tempos_entrada)) or 125000
+        h_saidas, h_entradas = self._tempos_box_historico()
+        saida = media(list(self.tempos_saida)) or media(h_saidas)
+        entrada = media(list(self.tempos_entrada)) or media(h_entradas)
+        res['tempos_box_fonte'] = 'do jogo' if saida else 'estimados até fazeres uma volta de saída'
+        saida = saida or 120000
+        entrada = entrada or 125000
         res['saida_ms'] = int(saida)
         res['entrada_ms'] = int(entrada)
         rest = self.sessao['tempo_restante'] * 1000
@@ -1009,7 +1347,16 @@ class Sessao:
         t_corr8 = _tarefa('Simulação de corrida', min(maior_run, 8), 8, 'voltas seguidas')
         t_corr5 = _tarefa('Confirmar ritmo de corrida', min(maior_run, 5), 5, 'voltas seguidas')
         t_cons = _tarefa('Medir o consumo de combustível', min(consumos, 2), 2, 'voltas medidas')
-        if tipo == 1:
+        treinos = [t for t in self.sessao.get('fim_de_semana') or [] if 1 <= t <= 4]
+        if tipo in treinos and len(treinos) <= 2:
+            # fim de semana com só 1 ou 2 treinos (por exemplo com sprint): o programa encolhe
+            if len(treinos) == 1:
+                lista = [t_reco, t_quali, t_corr8, t_cons]
+            elif treinos.index(tipo) == 0:
+                lista = [t_reco, t_comp, t_desg]
+            else:
+                lista = [t_quali, t_corr8, t_cons]
+        elif tipo == 1:
             lista = [t_reco, t_comp, t_desg]
         elif tipo == 2:
             lista = [t_quali, t_corr8, t_cons]
@@ -1052,7 +1399,36 @@ class Sessao:
         res['setores'] = [{'meu': meus[k], 'melhor': best[k]} for k in range(3)]
         traps = [c['speed_trap'] for c in carros if c['speed_trap']]
         res['speed_trap_melhor'] = max(traps) if traps else None
+        voltas_corrida, _ = self.voltas_corrida()
+        if voltas_corrida and self.conjuntos:
+            # todos os conjuntos que ainda tens, incluindo o montado, porque a corrida começa do zero
+            montado = self._conjunto_atual()
+            res['plano_corrida'] = self._plano(voltas_corrida, 1, None, set()) if not montado else \
+                self._plano_sem_montado(voltas_corrida, montado)
         return res
+
+    def _plano_sem_montado(self, voltas, montado):
+        livres = self._conjuntos_livres() + [montado]
+        perda, fonte = self._perda_box()
+        planos = planear(voltas, livres, None, perda)
+        if not planos:
+            return None
+        return dict(planos[0], perda_box_s=round(perda / 1000, 1), perda_box_fonte=fonte)
+
+    def _tempos_box_historico(self):
+        """Voltas de saída (a primeira de cada stint) e de entrada (a última de um stint fechado), do histórico do jogo."""
+        h = self.historico.get(self.jogador)
+        if not h:
+            return [], []
+        voltas, saidas, entradas, inicio = h['voltas'], [], [], 1
+        for st in h['stints']:
+            fim = st['fim'] if st['fim'] != 255 else len(voltas)
+            if inicio <= len(voltas) and voltas[inicio - 1]['tempo'] and inicio < fim:
+                saidas.append(voltas[inicio - 1]['tempo'])
+            if st['fim'] != 255 and 0 < fim <= len(voltas) and voltas[fim - 1]['tempo']:
+                entradas.append(voltas[fim - 1]['tempo'])
+            inicio = fim + 1
+        return saidas[-5:], entradas[-5:]
 
 
 def _tarefa(nome, feito_qtd, alvo, unidade, extra=''):

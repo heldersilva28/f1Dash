@@ -48,7 +48,8 @@ def volta(n, dist, atual, ultima=0, estado=1):
     return {'resultado': 2, 'paragens': 0, 'volta': n, 'dist_volta': dist, 'atual': atual, 'ultima': ultima,
             'estado_piloto': estado, 'invalida': 0, 'posicao': 1, 'dist_total': dist, 'para_frente': 0,
             'para_lider': 0, 'penalizacoes': 0, 'box_estado': 0, 'grelha': 1, 'speed_trap': 300, 's1': 0, 's2': 0,
-            'setor': 0}
+            'setor': 0, 'delta_sc': 0.0, 'avisos': 0, 'avisos_limites': 0, 'drive_through': 0, 'stop_go': 0,
+            'cumpre_penalizacao': 0}
 
 
 def conduzir(s, n, de, ate, t0=0, passo=50, ms_por_metro=15.0, uid=1):
@@ -127,8 +128,8 @@ class TesteVoltasCorrida(ComMemoriaTemporaria):
         s.receber(cab(), 'sessao', sessao(tipo=15, voltas=22))
         with open(E.FICHEIRO_MEMORIA, encoding='utf-8') as f:
             guardado = json.load(f)
-        self.assertEqual(guardado['corridas'][str(PISTA)], 22)
-        self.assertEqual(guardado['percentagem'], 0.5)
+        self.assertEqual(guardado['corridas'][f'{PISTA}:0'], 22)
+        self.assertEqual(guardado['percentagem_por_duracao']['0'], 0.5)
 
 
 # ---------------------------------------------------------------- memória
@@ -320,6 +321,195 @@ class TesteQualificacao(ComMemoriaTemporaria):
         q = s.fotografia()['quali']
         self.assertEqual(q['corte'], 10)
         self.assertEqual(len(q['ordem']), 16)
+
+
+# ---------------------------------------------------------------- duração da corrida e fim de semana (dados do jogo)
+class TesteFimDeSemana(ComMemoriaTemporaria):
+    def test_sprint_nao_estraga_a_duracao_aprendida(self):
+        s = E.Sessao()
+        fds = [1, 10, 11, 12, 15, 5, 6, 7, 16]          # TL1, shootout, sprint, qualificação, corrida
+        sprint = dict(sessao(tipo=15, voltas=15), fim_de_semana=fds, duracao_sessao=7)
+        s.receber(cab(1), 'sessao', sprint)
+        self.assertFalse(os.path.exists(E.FICHEIRO_MEMORIA))
+        s.receber(cab(2), 'sessao', dict(sessao(tipo=16, voltas=44), fim_de_semana=fds, duracao_sessao=7))
+        self.assertEqual(E.ler_memoria()['corridas'][f'{PISTA}:7'], 44)
+
+    def test_voltas_pela_duracao_escolhida_no_jogo(self):
+        s = E.Sessao()
+        s.memoria = {'percentagem_por_duracao': {'3': 0.25, '7': 1.0}}
+        s.sessao = dict(sessao(tipo=2, voltas=0), duracao_sessao=3)
+        self.assertEqual(s.voltas_corrida()[0], 11)
+        s.sessao['duracao_sessao'] = 7
+        self.assertEqual(s.voltas_corrida()[0], 44)
+
+    def test_proxima_sessao(self):
+        s = E.Sessao(guardar=False)
+        s.sessao = dict(sessao(tipo=2), fim_de_semana=[1, 2, 3, 5, 6, 7, 15])
+        self.assertEqual(s._proxima_sessao(), 'Treinos livres 3')
+        s.sessao['tipo'] = 15
+        self.assertIsNone(s._proxima_sessao())
+
+    def test_programa_com_um_so_treino(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=40,
+                           mexer_sessao=lambda c: c.update(fim_de_semana=[2, 10, 11, 12, 15, 5, 6, 7, 16]))
+        nomes = [t['nome'] for t in s.fotografia()['treinos']['programa']]
+        self.assertEqual(nomes, ['Reconhecimento da pista', 'Simulação de qualificação', 'Simulação de corrida',
+                                 'Medir o consumo de combustível'])
+
+
+# ---------------------------------------------------------------- plano de corrida
+def conj(comp, vida, delta, desgaste=0):
+    return {'composto': comp, 'vida': vida, 'vida_util': vida, 'delta': delta, 'desgaste': desgaste}
+
+
+class TestePlano(unittest.TestCase):
+    def test_sem_paragem_se_os_pneus_chegam_e_ja_usaste_dois_compostos(self):
+        planos = E.planear(10, [conj('H', 30, 300)], conj('M', 12, 0), usados={'S', 'M'}, volta_atual=35)
+        self.assertEqual(planos[0]['paragens'], 0)
+
+    def test_regra_dos_dois_compostos(self):
+        planos = E.planear(10, [conj('H', 30, 300)], conj('M', 12, 0), usados={'M'}, volta_atual=35)
+        self.assertEqual(planos[0]['paragens'], 1)
+        self.assertEqual(planos[0]['stints'][1]['composto'], 'H')
+
+    def test_respeita_a_vida_de_cada_conjunto(self):
+        planos = E.planear(30, [conj('S', 15, -500), conj('H', 34, 200)], conj('M', 10, 0), usados={'M'})
+        p = planos[0]
+        vidas = {'M': 10, 'S': 15, 'H': 34}
+        for st in p['stints']:
+            self.assertLessEqual(st['voltas'], vidas[st['composto']])
+        self.assertEqual(sum(st['voltas'] for st in p['stints']), 30)
+
+    def test_mais_paragens_so_quando_compensa(self):
+        rapido = [conj('S', 10, -1000), conj('S', 10, -1000)]
+        com_perda_grande = E.planear(20, rapido + [conj('H', 30, 0)], conj('M', 10, 0), perda_box_ms=30000, usados={'M'})
+        self.assertEqual(com_perda_grande[0]['paragens'], 1)
+        com_perda_pequena = E.planear(20, rapido + [conj('H', 30, 0)], conj('M', 10, 0), perda_box_ms=1000, usados={'M'})
+        self.assertEqual(com_perda_pequena[0]['paragens'], 2)
+
+    def test_voltas_da_paragem(self):
+        p = E.planear(20, [conj('H', 30, 0)], conj('M', 8, 0), usados={'M'}, volta_atual=25)[0]
+        self.assertEqual(p['box'], [p['stints'][0]['ate_volta']])
+        self.assertEqual(p['stints'][-1]['ate_volta'], 44)
+
+    def test_janela_do_jogo_quando_custa_pouco(self):
+        p = E.planear(20, [conj('H', 30, 50)], conj('M', 15, 0), usados={'M'}, volta_atual=25, janela=(30, 33))[0]
+        self.assertEqual(p['box'], [30])
+
+    def test_sem_pneus_que_cheguem(self):
+        self.assertEqual(E.planear(40, [conj('H', 10, 0)], conj('M', 5, 0), usados={'M'}), [])
+
+
+class TestePneusDoJogo(ComMemoriaTemporaria):
+    def test_vida_vem_do_conjunto_montado(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=60)
+        eu = s.fotografia()['eu']
+        self.assertEqual(eu['vida_fonte'], 'do jogo')
+        self.assertEqual(eu['vida_total_voltas'], 26)                # médios na demo
+        self.assertEqual(eu['vida_restante_voltas'], 26 - eu['idade'])
+
+    def test_plano_e_perda_de_box_medida_nas_paragens(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=600)
+        plano = s.fotografia()['corrida']['plano']
+        self.assertIn('medida', plano['perda_box_fonte'])
+        self.assertAlmostEqual(plano['perda_box_s'], 21.4, delta=1.5)
+        self.assertEqual(plano['stints'][-1]['ate_volta'], 44)
+
+    def test_saida_e_entrada_do_historico_na_qualificacao(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'qualificacao', passos=200)
+        q = s.fotografia()['quali']
+        self.assertEqual(q['tempos_box_fonte'], 'do jogo')
+        self.assertGreater(q['saida_ms'], 100000)
+
+
+# ---------------------------------------------------------------- bandeiras e penalizações (dados do jogo)
+class TesteBandeiras(ComMemoriaTemporaria):
+    def test_vermelha_vem_do_evento(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=20)
+        s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'RDFL'})
+        f = s.fotografia()
+        self.assertTrue(f['sessao']['bandeira_vermelha'])
+        self.assertEqual(f['alertas'][0]['id'], 'vermelha')
+        s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'LGOT'})
+        self.assertFalse(s.fotografia()['sessao']['bandeira_vermelha'])
+
+    def test_amarela_a_frente_pelas_zonas(self):
+        s = E.Sessao(guardar=False)
+        s.sessao = dict(sessao(), zonas=[{'inicio': 0.0, 'bandeira': 0}, {'inicio': 0.5, 'bandeira': 3},
+                                         {'inicio': 0.7, 'bandeira': 0}])
+        s.voltas = [volta(3, 0.4 * COMPRIMENTO, 0)]
+        self.assertEqual(s._amarela_a_frente(), round(0.1 * COMPRIMENTO))
+        s.voltas = [volta(3, 0.6 * COMPRIMENTO, 0)]
+        self.assertEqual(s._amarela_a_frente(), 0)
+        s.voltas = [volta(3, 0.8 * COMPRIMENTO, 0)]
+        self.assertEqual(s._amarela_a_frente(), round(0.7 * COMPRIMENTO))
+
+    def alertas(self, **eu):
+        s = E.Sessao(guardar=False)
+        s.sessao = sessao()
+        base = {'safety_car': 0, 'chuva': None, 'box_ideal': 0, 'box_ultima': 0, 'voltas_total': 44,
+                'bandeira_vermelha': False, 'zona_amarela_m': None}
+        sc = eu.pop('sc', 0)
+        base['safety_car'] = sc
+        meu = dict({'estado_piloto': 4, 'box': False, 'composto': 'M', 'volta': 10}, **eu)
+        return s, s._alertas({'sessao': base, 'eu': meu, 'ecra': 'corrida'})
+
+    def test_delta_do_safety_car(self):
+        _, res = self.alertas(sc=2, delta_sc=-0.4)
+        self.assertEqual((res[0]['id'], res[0]['nivel']), ('sc', 'perigo'))
+        _, res = self.alertas(sc=2, delta_sc=1.2)
+        self.assertEqual(res[0]['texto'], 'Virtual Safety Car · delta +1.2 s')
+
+    def test_penalizacao_por_cumprir(self):
+        _, res = self.alertas(drive_through=1, cumpre_penalizacao=True)
+        self.assertEqual(res[0]['texto'], 'Drive-through por cumprir — cumpres nesta paragem')
+
+    def test_aviso_de_limites_de_pista_dura_uns_segundos(self):
+        s = E.Sessao(guardar=False)
+        s.receber(cab(), 'sessao', sessao(tipo=15))
+        v = volta(3, 100, 1000)
+        v['avisos_limites'] = 2
+        s.receber(cab(), 'voltas', [v])
+        self.assertEqual(s.avisos_limites[0], 2)
+        res = s._alertas({'sessao': {'safety_car': 0, 'chuva': None, 'box_ideal': 0, 'box_ultima': 0, 'voltas_total': 44},
+                          'eu': {'estado_piloto': 4, 'composto': 'M'}, 'ecra': 'corrida'})
+        self.assertEqual(res[0]['texto'], '2 avisos de limites de pista')
+        s.avisos_limites = (2, 0.0)
+        res = s._alertas({'sessao': {'safety_car': 0, 'chuva': None, 'box_ideal': 0, 'box_ultima': 0, 'voltas_total': 44},
+                          'eu': {'estado_piloto': 4, 'composto': 'M'}, 'ecra': 'corrida'})
+        self.assertEqual(res, [])
+
+
+# ---------------------------------------------------------------- resumo no fim da sessão
+class TesteResumo(ComMemoriaTemporaria):
+    def test_corrida_usa_a_classificacao_final_do_jogo(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=60)
+        self.assertNotIn('resumo', s.fotografia())
+        fc = [{'posicao': 0, 'voltas': 0, 'grelha': 0, 'pontos': 0, 'paragens': 0, 'resultado': 0, 'motivo': 0,
+               'melhor_ms': 0, 'tempo_total': 0.0, 'penalizacoes_s': 0, 'n_penalizacoes': 0, 'stints': []}
+              for _ in range(22)]
+        fc[0].update(posicao=1, voltas=44, tempo_total=4700.0, resultado=3)
+        fc[demo.JOGADOR].update(posicao=3, voltas=44, grelha=5, pontos=15, paragens=1, resultado=3, melhor_ms=106100,
+                                tempo_total=4712.5, stints=[{'visual': 16, 'fim': 18}, {'visual': 17, 'fim': 44}])
+        s.receber(cab(s.uid, demo.JOGADOR), 'classificacao', fc)
+        r = s.fotografia()['resumo']
+        self.assertEqual((r['posicao'], r['grelha'], r['pontos'], r['resultado']), (3, 5, 15, 'Terminou'))
+        self.assertEqual(r['stints'], [{'composto': 'S', 'voltas': 18}, {'composto': 'M', 'voltas': 26}])
+        self.assertEqual(r['para_vencedor_s'], 12.5)
+
+    def test_treinos_no_fim_da_sessao(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=60)
+        s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'SEND'})
+        r = s.fotografia()['resumo']
+        self.assertEqual(r['proxima'], 'Treinos livres 3')
+        self.assertEqual(r['programa']['total'], 3)
+        self.assertIn('plano_corrida', r)
+
+    def test_nova_sessao_apaga_o_resumo(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=20)
+        s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'SEND'})
+        s.receber(cab(999), 'sessao', sessao(tipo=3))
+        self.assertFalse(s.fim_sessao)
 
 
 if __name__ == '__main__':
