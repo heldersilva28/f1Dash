@@ -4,11 +4,17 @@ Uso:
     python f1dash.py                 # escuta o jogo na porta UDP 20777 e abre o painel em http://localhost:8080
     python f1dash.py --demo corrida  # sem jogo: simula uma corrida (ou qualificacao / treinos)
 """
+import sys
+
+if sys.version_info < (3, 10):
+    print('[ERRO] O F1 Dash precisa do Python 3.10 ou mais recente (tens o %d.%d).' % sys.version_info[:2])
+    print('       Instala a versão mais recente em https://www.python.org/downloads/')
+    sys.exit(1)
+
 import argparse
 import json
 import os
 import socket
-import sys
 import threading
 import time
 import traceback
@@ -82,11 +88,23 @@ def ip_da_rede():
         s.close()
 
 
-def escutar_udp(porta):
+def abrir_udp(porta):
+    """Abre a porta UDP do jogo só para este programa. Sem SO_REUSEADDR: no Windows e no Linux essa opção deixava
+    um segundo painel abrir a mesma porta, e os dois ficavam a dividir os pacotes sem avisar."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if sys.platform == 'win32' and hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
     try:
         sock.bind(('0.0.0.0', porta))
+    except OSError:
+        sock.close()
+        raise
+    return sock
+
+
+def escutar_udp(porta):
+    try:
+        sock = abrir_udp(porta)
     except OSError as e:
         print(f'[ERRO] Não consegui abrir a porta UDP {porta}: {e}')
         print('       Fecha outros programas de telemetria ou escolhe outra porta com --porta-udp.')
@@ -134,6 +152,24 @@ class Pedido(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
+    def do_POST(self):
+        """Definições que o servidor tem de saber (por agora, as voltas da corrida escolhidas à mão)."""
+        if self.path != '/definicoes':
+            return self.send_error(404)
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+            if not 0 < n <= 1000:
+                raise ValueError
+            voltas = json.loads(self.rfile.read(n)).get('voltas')
+            if voltas is not None and (isinstance(voltas, bool) or not isinstance(voltas, int) or not 1 <= voltas <= 99):
+                raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            return self.send_error(400, 'Pedido inválido')
+        if not sessao.definir_voltas(voltas):
+            return self.send_error(409, 'Ainda não há sessão do jogo')
+        difusor.atualizar()          # os ecrãs ligados veem a mudança já
+        self._enviar_json(b'{"ok": true}')
+
     def _enviar_json(self, corpo):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -159,11 +195,23 @@ class Pedido(BaseHTTPRequestHandler):
 
 class Servidor(ThreadingHTTPServer):
     daemon_threads = True
+    # no Windows, SO_REUSEADDR deixa abrir uma porta que outro programa já está a usar
+    allow_reuse_address = sys.platform != 'win32'
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             return   # um browser fechou ou recarregou a página: normal, não é um erro
         super().handle_error(request, client_address)
+
+
+def abrir_servidor(porta, tentativas=10):
+    """Abre o painel na porta pedida; se estiver ocupada, tenta as seguintes."""
+    for p in range(porta, porta + tentativas):
+        try:
+            return Servidor(('0.0.0.0', p), Pedido), p
+        except OSError:
+            continue
+    return None, None
 
 
 def main():
@@ -189,12 +237,18 @@ def main():
         threading.Thread(target=demo.correr, args=(a.demo, a.porta_udp), daemon=True).start()
         print(f'[OK] Modo demonstração: {a.demo}')
 
-    srv = Servidor(('0.0.0.0', a.porta_web), Pedido)
-    url = f'http://localhost:{a.porta_web}'
+    srv, porta = abrir_servidor(a.porta_web)
+    if not srv:
+        print(f'[ERRO] As portas {a.porta_web} a {a.porta_web + 9} estão todas ocupadas.')
+        print('       Fecha a outra janela do F1 Dash ou escolhe outra porta com --porta-web.')
+        sys.exit(1)
+    if porta != a.porta_web:
+        print(f'[aviso] A porta {a.porta_web} está ocupada (outra janela do F1 Dash?). Uso a {porta}.')
+    url = f'http://localhost:{porta}'
     print(f'[OK] Painel em {url}  (no segundo monitor carrega F11 para ecrã inteiro)')
     ip = ip_da_rede()
     if ip and not ip.startswith('127.'):
-        print(f'[OK] No tablet ou telemóvel (mesma rede Wi-Fi): http://{ip}:{a.porta_web}')
+        print(f'[OK] No tablet ou telemóvel (mesma rede Wi-Fi): http://{ip}:{porta}')
     if not a.sem_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:

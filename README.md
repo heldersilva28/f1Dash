@@ -18,7 +18,7 @@ Um ecrã próprio para **corrida**, **qualificação** e **treinos livres**, que
 
 <br>
 
-[**Começar**](#-começar-em-3-passos) · [**Os ecrãs**](#-os-três-ecrãs) · [**Tablet e telemóvel**](#-no-tablet-ou-telemóvel) · [**Configurar o jogo**](#-configurar-o-jogo) · [**Problemas**](#-problemas-frequentes)
+[**Começar**](#-começar-em-3-passos) · [**Os ecrãs**](#-os-três-ecrãs) · [**Volante no tablet**](#-volante-no-tablet) · [**Telemóvel**](#-no-tablet-ou-telemóvel) · [**Configurar o jogo**](#-configurar-o-jogo) · [**Problemas**](#-problemas-frequentes)
 
 <br>
 
@@ -81,7 +81,7 @@ Chuva a caminho, pneus no limite, bandeiras, asa partida, combustível curto: ap
 
 **1. Instala o Python** (só da primeira vez)
 
-Descarrega a versão mais recente em <https://www.python.org/downloads/>. Na primeira janela do instalador, marca **"Add Python to PATH"**.
+Descarrega a versão mais recente em <https://www.python.org/downloads/>. Na primeira janela do instalador, marca **"Add Python to PATH"** (recomendado; se te esqueceres, o `Iniciar.bat` encontra o Python na mesma).
 
 **2. Liga a telemetria no jogo**
 
@@ -241,7 +241,31 @@ Por baixo do cabeçalho aparece uma barra com o que precisas de saber já. Fica 
 | 🔵 **Informação** | Janela de box aberta · modo espectador |
 
 > [!NOTE]
-> O botão **⚙** no canto inferior direito abre as definições: escolher o ecrã à mão, escolher a vista (completa ou compacta) e, só se o automático falhar, pôr as voltas da corrida à mão.
+> O botão **⚙** no canto inferior direito abre as definições: escolher o ecrã à mão, escolher a vista (completa, volante ou compacta) e, só se o automático falhar, pôr as voltas da corrida à mão.
+
+---
+
+## 🎛️ Volante no tablet
+
+Com o tablet deitado ao lado do volante, o painel vira o ecrã de um volante de F1: tudo o que precisas a correr, em letras grandes.
+
+<img src="imagens/volante.png" alt="Vista Volante no tablet: posição, volta, conta-rotações com mudança e velocidade, ERS, combustível, travões, motor, carro com o desgaste dos pneus, delta, carros à frente e atrás, aero, Overtake e setores" width="100%">
+
+| | |
+|---|---|
+| **Barra de cima** | Posição, volta, pneus montados e o estado da pista: bandeiras, Safety Car e os alertas mais importantes (box nesta volta, chuva, penalizações). |
+| **Conta-rotações** | Mudança, velocidade e rotações; as luzes acendem como as do volante do carro (o jogo envia a percentagem). |
+| **Carro** | Desgaste de cada pneu em anel, temperatura da superfície e dos travões, e o dano de cada peça. |
+| **ERS, combustível, travões, motor** | Bateria, voltas de combustível a mais ou a menos, repartição de travagem e temperatura do motor. |
+| **Delta** | Contra a tua melhor volta, com a previsão; fica verde quando vais mais rápido e vermelho quando vais mais lento. |
+| **À frente e atrás** | Diferença e se estás a recuperar ou a perder tempo para cada um. |
+| **Aero e Overtake** | Quando o modo reta (ou o DRS, nas regras de 2025) fica disponível, e se tens o Overtake. |
+| **Setores** | Os setores da volta atual comparados com a tua melhor, o progresso no setor em curso, a volta mais rápida da sessão e a tua última. |
+
+Num tablet deitado, a vista **Volante** abre sozinha (também se escolhe em ⚙). Os três botões da barra de cima abrem as definições, põem em ecrã inteiro e guardam uma imagem do ecrã.
+
+> [!TIP]
+> **No iPad**, abre o endereço no Safari e escolhe **Partilhar → Adicionar ao ecrã principal**. O painel passa a abrir como uma app, sem as barras do browser. Para guardar uma imagem do ecrã no iPad, usa o botão de cima e o de volume + ao mesmo tempo (o Safari não deixa o botão de guardar imagem funcionar).
 
 ---
 
@@ -255,7 +279,7 @@ Ao arrancar, o painel mostra o endereço para usar noutro aparelho:
 
 <img src="imagens/telemovel.png" alt="Vista compacta no telemóvel: corrida, qualificação e treinos" width="100%">
 
-Abre esse endereço no browser do tablet ou do telemóvel, ligado ao mesmo Wi-Fi do PC. Em ecrãs pequenos, o painel passa sozinho para a **vista compacta**: cartões grandes com o essencial (posição, diferenças, tempos, pneus, estratégia) que se leem de relance e se ajustam ao ecrã. Podes ter o PC e o tablet abertos ao mesmo tempo.
+Abre esse endereço no browser do tablet ou do telemóvel, ligado ao mesmo Wi-Fi do PC. Num tablet deitado abre o [volante](#-volante-no-tablet); no telemóvel (ou com o tablet ao alto), o painel passa sozinho para a **vista compacta**: cartões grandes com o essencial (posição, diferenças, tempos, pneus, estratégia) que se leem de relance e se ajustam ao ecrã. Podes ter o PC e o tablet abertos ao mesmo tempo.
 
 > [!TIP]
 > Se o tablet não conseguir abrir o endereço, a firewall do Windows está a bloquear. Na primeira vez que abres o painel, escolhe **Permitir** também para redes privadas.
@@ -292,7 +316,7 @@ No F1 25: **Definições → Definições de telemetria**
 - O **modo demo não mexe** na memória: experimentar não estraga o que o painel aprendeu das tuas corridas.
 - A ver uma sessão como **espectador**, o painel segue o carro que o jogo está a mostrar.
 - O jogo não envia o desgaste dos pneus dos outros carros, por isso só aparece o teu.
-- Ao arrancar, o painel confirma o tamanho de todos os pacotes contra a especificação oficial da EA.
+- Ao arrancar, o painel confirma o tamanho dos pacotes principais contra a especificação oficial da EA. Dois pacotes que o painel usa no fim da corrida (a classificação final no formato 2026 e as posições volta a volta) ainda não estão confirmados: se o jogo os mandar com outro tamanho, o painel ignora-os e usa os próprios dados, sem falhar.
 
 ---
 
@@ -302,6 +326,7 @@ No F1 25: **Definições → Definições de telemetria**
 |---|---|
 | Fica em **"À espera do jogo…"** | Confirma a porta `20777`, o IP e que a telemetria UDP está ligada. Na consola, confirma o IP do PC. |
 | **"Estão a chegar dados mas num formato que não conheço"** | Muda o *Formato UDP* para 2026 ou 2025. |
+| **"A porta 8080 está ocupada"** | Há outra janela do F1 Dash aberta (ou outro programa na 8080). O painel passa sozinho para a porta seguinte e diz qual usa. |
 | **"Não consegui abrir a porta UDP"** | Fecha outros programas de telemetria ou usa outra porta: `python f1dash.py --porta-udp 20778` (e põe a mesma no jogo). |
 | Queres usar com outro programa ao mesmo tempo | No jogo, envia para este painel. Se o outro programa tiver reencaminhamento UDP, usa-o. |
 
@@ -355,6 +380,7 @@ f1Dash/
 │   ├── index.html
 │   ├── app.js           # os três ecrãs
 │   ├── carro.js         # desenho do carro e dos pneus
+│   ├── volante.js       # vista Volante (tablet deitado)
 │   └── estilo.css
 ├── testes/              # python -m unittest discover -s testes
 │   ├── teste_pacotes.py # leitura dos pacotes 2025 e 2026

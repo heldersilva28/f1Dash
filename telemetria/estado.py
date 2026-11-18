@@ -137,15 +137,19 @@ SECOS = ('S', 'M', 'H')
 NOMES_COMPOSTOS = {'S': 'Macios', 'M': 'Médios', 'H': 'Duros', 'I': 'Intermédios', 'W': 'Chuva'}
 
 
-def _repartir(voltas, conjuntos):
-    """Distribui as voltas pelos stints: cada um com pelo menos 1 volta e no máximo a vida que o jogo dá
+STINT_MINIMO = 5   # voltas: um stint planeado mais curto do que isto não é estratégia, é uma paragem desperdiçada
+
+
+def _repartir(voltas, conjuntos, minimos):
+    """Distribui as voltas pelos stints: cada um com pelo menos o seu mínimo e no máximo a vida que o jogo dá
     ao conjunto; as voltas que sobram vão para os conjuntos mais rápidos. Devolve None se não chegar."""
-    if sum(c['vida'] for c in conjuntos) < voltas or len(conjuntos) > voltas:
+    if sum(c['vida'] for c in conjuntos) < voltas or sum(minimos) > voltas \
+            or any(c['vida'] < m for c, m in zip(conjuntos, minimos)):
         return None
-    rep = [1] * len(conjuntos)
-    resto = voltas - len(conjuntos)
+    rep = list(minimos)
+    resto = voltas - sum(minimos)
     for k in sorted(range(len(conjuntos)), key=lambda k: conjuntos[k]['delta']):
-        mais = min(resto, conjuntos[k]['vida'] - 1)
+        mais = min(resto, conjuntos[k]['vida'] - rep[k])
         rep[k] += mais
         resto -= mais
     return rep
@@ -158,6 +162,10 @@ def planear(voltas, conjuntos, atual=None, perda_box_ms=22000, usados=(), volta_
     voltas: voltas que faltam (contando a atual); conjuntos: candidatos para os stints seguintes;
     atual: o conjunto montado (o primeiro stint) ou None antes da corrida; usados: compostos já usados.
     Devolve a lista de planos, do mais rápido para o mais lento (um por número de paragens)."""
+    # um conjunto sem voltas (o jogo diz vida 0) já não serve; o montado ainda faz esta volta até às boxes
+    conjuntos = [c for c in conjuntos if c['vida'] >= 1]
+    if atual and atual['vida'] < 1:
+        atual = dict(atual, vida=1)
     if voltas <= 0 or not conjuntos and not atual:
         return []
     # conjuntos iguais (mesmo composto e desgaste) contam como um tipo com quantidade
@@ -187,13 +195,16 @@ def planear(voltas, conjuntos, atual=None, perda_box_ms=22000, usados=(), volta_
             secos = {c['composto'] for c in stints} | set(usados)
             if secos <= set(SECOS) and len(secos) < 2:
                 continue                                           # regra: dois compostos de seco na corrida
-            rep = _repartir(voltas, stints)
+            # o stint em curso pode acabar já (box nesta volta); os outros têm de valer a paragem
+            minimo = STINT_MINIMO if voltas >= 2 * STINT_MINIMO else 1
+            minimos = [1 if (k == 0 and atual) else minimo for k in range(len(stints))]
+            rep = _repartir(voltas, stints, minimos)
             if not rep:
                 continue
             if janela and atual and paragens == 1:
                 # se der, a paragem fica na janela que o jogo recomenda
                 ideal, ultima = janela
-                lo, hi = max(1, voltas - stints[1]['vida']), min(stints[0]['vida'], voltas - 1)
+                lo, hi = max(1, voltas - stints[1]['vida']), min(stints[0]['vida'], voltas - minimos[1])
                 alvo = min(max(ideal - volta_atual + 1, lo), hi)
                 custo = lambda k: k * stints[0]['delta'] + (voltas - k) * stints[1]['delta']
                 if lo <= alvo <= hi and custo(alvo) - custo(rep[0]) < 2000:
@@ -421,6 +432,9 @@ class Sessao:
         completas = voltas_completas(pista, s.get('comprimento'))
         if 15 <= s.get('tipo', 0) <= 17 and total:
             return total, 'da corrida'
+        manual = self.memoria.get('voltas_manuais', {}).get(str(pista))
+        if manual:
+            return manual, 'definido por ti'
         dur = s.get('duracao_sessao') or 0
         corridas = self.memoria.get('corridas', {})
         guardada = corridas.get(f'{pista}:{dur}')
@@ -443,6 +457,20 @@ class Sessao:
         if completas:
             return completas, 'distância completa'
         return None, ''
+
+    def definir_voltas(self, voltas):
+        """Voltas da corrida escolhidas à mão nas definições (None volta ao automático), para este circuito."""
+        with self.lock:
+            pista = (self.sessao or {}).get('pista')
+            if pista is None:
+                return False
+            m = self.memoria.setdefault('voltas_manuais', {})
+            if voltas:
+                m[str(pista)] = int(voltas)
+            else:
+                m.pop(str(pista), None)
+            self._persistir()
+            return True
 
     def _proxima_tipo(self):
         s = self.sessao or {}
@@ -708,11 +736,13 @@ class Sessao:
                 'previsao': self._previsao(), 'box_ideal': s['box_ideal'], 'box_ultima': s['box_ultima'],
                 'box_reentrada': s['box_reentrada'], 'bandeira_vermelha': self.bandeira_vermelha,
                 'proxima': self._proxima_sessao(), 'zona_amarela_m': self._amarela_a_frente(),
+                'setores_m': [round(x) for x in self._limites_mini()[self.N_MINI - 1::self.N_MINI]],
             },
         }
         vc, fonte = self.voltas_corrida()
         out['sessao']['voltas_corrida'] = vc
         out['sessao']['voltas_corrida_fonte'] = fonte
+        out['sessao']['voltas_manuais'] = self.memoria.get('voltas_manuais', {}).get(str(s['pista']))
         carros = self._carros()
         out['carros'] = carros
         out['eu'] = self._eu(carros)
@@ -1112,12 +1142,15 @@ class Sessao:
                 'ers_pct': round(est['ers'] / 4e6 * 100), 'ers_modo': est['ers_modo'],
                 'ers_rec_mj': round((est['ers_mguk'] + est['ers_mguh']) / 1e6, 1),
                 'ers_usado_mj': round(est['ers_usado'] / 1e6, 1), 'ers_limite_mj': round(est['ers_limite'] / 1e6, 1),
-                'bandeira': est['bandeira'],
+                'bandeira': est['bandeira'], 'travao_bias': est['travao_bias'], 'rpm_max': est['rpm_max'],
             })
         eu['ajuda'] = self._ajuda(j)
         if tel:
             eu.update({'pneus_sup': tel['pneus_sup'], 'pneus_int': tel['pneus_int'], 'travoes': tel['travoes_temp'],
-                       'pressao': tel['pressao'], 'motor_temp': tel['motor_temp'], 'velocidade': tel['velocidade']})
+                       'pressao': tel['pressao'], 'motor_temp': tel['motor_temp'], 'velocidade': tel['velocidade'],
+                       'mudanca': tel['mudanca'], 'rpm': tel['rpm'], 'luzes_rpm': tel['luzes_rpm']})
+        eu['dist_volta'] = v['dist_volta']
+        eu['setores_sessao'] = self._melhores_setores_sessao()
         if dan:
             eu['danos'] = dan
         if t2:

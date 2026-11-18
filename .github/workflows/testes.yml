@@ -29,7 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verificar app.js e carro.js
+      - name: Verificar app.js, carro.js e volante.js
         run: |
           node --check web/app.js
           node --check web/carro.js
+          node --check web/volante.js

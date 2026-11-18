@@ -1,0 +1,2 @@
+# os .bat precisam de CRLF no Windows (os rótulos de "call :python" falham só com LF)
+*.bat text eol=crlf

@@ -199,7 +199,7 @@ def ler_posicoes_voltas(dados, fmt):
 
 def ler_classificacao(dados, fmt):
     o = CABECALHO.size
-    n = dados[o]; o += 1
+    o += 1   # número de carros classificados (os lugares vazios vêm com a posição a 0)
     carros = []
     for _ in range(MAX_CARROS[fmt]):
         v = CLASSIFICACAO.unpack_from(dados, o); o += CLASSIFICACAO.size
@@ -208,7 +208,7 @@ def ler_classificacao(dados, fmt):
                        'resultado': v[5], 'motivo': v[6], 'melhor_ms': v[7], 'tempo_total': v[8],
                        'penalizacoes_s': v[9], 'n_penalizacoes': v[10],
                        'stints': [{'visual': v[20 + k], 'fim': v[28 + k]} for k in range(min(ns, 8))]})
-    return carros[:n] if n <= len(carros) else carros
+    return carros   # a lista é indexada pelo número do carro: n diz quantos estão classificados, não onde
 
 
 def ler_participantes(dados, fmt):
@@ -236,7 +236,7 @@ def ler_telemetria(dados, fmt):
         v = est.unpack_from(dados, o); o += est.size
         carros.append({
             'velocidade': v[0], 'acelerador': v[1], 'travao': v[3], 'mudanca': v[5], 'rpm': v[6],
-            'drs': v[7],
+            'drs': v[7], 'luzes_rpm': v[8],
             'travoes_temp': list(v[10:14]), 'pneus_sup': list(v[14:18]), 'pneus_int': list(v[18:22]),
             'motor_temp': v[22], 'pressao': [round(x, 1) for x in v[23:27]],
         })
@@ -260,6 +260,7 @@ def ler_estado(dados, fmt):
     for _ in range(MAX_CARROS[fmt]):
         v = est.unpack_from(dados, o); o += est.size
         c = {
+            'travao_bias': v[3], 'rpm_max': v[8],
             'combustivel': v[5], 'capacidade': v[6], 'combustivel_voltas': v[7],
             'drs_permitido': v[11], 'drs_dist': v[12], 'composto_real': v[13], 'composto': v[14], 'idade_pneus': v[15],
             'bandeira': v[16], 'ers': v[19], 'ers_modo': v[20],

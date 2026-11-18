@@ -224,3 +224,20 @@ html.compacto .alerta { flex: none; padding: 12px 14px; font-size: 18px; white-s
 .rs { flex: 1; min-height: 0; display: grid; gap: 16px; }
 .rs svg { display: block; max-width: 100%; }
 .pd8-12 { padding:8px 12px; }
+
+/* botão para voltar ao resumo, quando estás a ver o ecrã ao vivo depois do fim da sessão */
+#abrir-resumo { position: fixed; right: 64px; bottom: 10px; height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #2A333E;
+  background: #12161BEE; color: #F2F4F7; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+#abrir-resumo[hidden] { display: none; }
+
+/* vista "volante": tablet deitado (1180×820), o design "Tablet · volante" */
+html.volante body { background: #05070A; }
+html.volante #ecra { width: 1180px; height: 820px; padding: 0; gap: 0; background: #05070A; }
+html.volante #abrir-def { display: none; }            /* o volante tem o seu botão de definições na barra de cima */
+.vl .p { background: linear-gradient(180deg, #11161C 0%, #0B0F13 100%); border: 1px solid #26303B; border-radius: 16px; box-sizing: border-box; box-shadow: inset 0 1px 0 #ffffff0d; }
+.vl .l { font-size: 15px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #D5DCE4; }
+.vl .ic { width: 46px; height: 46px; border: 0; background: transparent; color: #D5DCE4; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 10px; }
+.vl .ic:active { background: #ffffff14; }
+#aviso-volante { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 80vw; padding: 12px 18px; border-radius: 12px;
+  background: #12161BF2; border: 1px solid #2A333E; color: #F2F4F7; font: 600 16px 'Barlow Semi Condensed', system-ui, sans-serif; z-index: 10; text-align: center; }
+#aviso-volante[hidden] { display: none; }

@@ -3,6 +3,7 @@
 /* global blocoCarro, corTempPneu, corDano */
 
 const ecraEl = document.getElementById('ecra');
+const botaoResumo = document.getElementById('abrir-resumo');
 const palco = document.getElementById('palco');
 
 // ------------------------------------------------------------------ definições guardadas
@@ -10,9 +11,9 @@ const def = carregarDef();
 function carregarDef() {
   try {
     const d = JSON.parse(localStorage.getItem('f1dash') || '{}');
-    return { ecra: d.ecra || 'auto', voltas: d.voltas || null, vista: d.vista || 'auto' };
+    return { ecra: d.ecra || 'auto', vista: d.vista || 'auto' };
   } catch (e) {
-    return { ecra: 'auto', voltas: null, vista: 'auto' };
+    return { ecra: 'auto', vista: 'auto' };
   }
 }
 function guardarDef() {
@@ -477,8 +478,8 @@ function renderTreinos(d) {
       <div class="ai-b row sb"><span class="f14 m">${RODA[k]}</span><span class="f14 m">agora ${Math.round(des[k])}%</span></div>
       <span class="f26 fw7" style="color:${pior ? '#FFB020' : '#F2F4F7'}">${r == null ? '—' : r.toFixed(1) + '%'}<span class="f15 fw5 c-dim"> /volta</span></span></div>`;
   }).join('');
-  const voltasCorrida = def.voltas || s.voltas_corrida || null;
-  const fonteVoltas = def.voltas ? 'definido por ti' : (s.voltas_corrida_fonte || '');
+  const voltasCorrida = s.voltas_corrida || null;          // as voltas escolhidas à mão já vêm do servidor
+  const fonteVoltas = s.voltas_corrida_fonte || '';
   const consumo = eu.consumo_volta;
   const total = consumo && voltasCorrida ? (consumo * (voltasCorrida + 1)).toFixed(1) : null;
   const tabela = d.carros.filter((c) => c.melhor_ms).sort((a, b) => a.melhor_ms - b.melhor_ms);
@@ -572,10 +573,23 @@ function barraAlertas(lista) {
 }
 
 // ------------------------------------------------------------------ vista compacta (tablet e telemóvel)
-function vistaCompacta() {
-  if (def.vista === 'compacta') return true;
-  if (def.vista === 'completa') return false;
-  return window.innerWidth < 1200 || window.innerHeight > window.innerWidth;
+// Vistas: "completa" (monitor, 1920×1080), "volante" (tablet deitado, 1180×820) e "compacta" (telemóvel, sem escala).
+function modoVista() {
+  if (['completa', 'compacta', 'volante'].includes(def.vista)) return def.vista;
+  const toque = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
+  const retrato = window.innerHeight > window.innerWidth;
+  if (window.innerWidth < 700 || retrato) return 'compacta';       // telemóvel, ou tablet ao alto
+  if (toque && window.innerWidth < 1600) return 'volante';         // tablet deitado ao lado do volante
+  return window.innerWidth < 1200 ? 'compacta' : 'completa';
+}
+const vistaCompacta = () => modoVista() === 'compacta';
+function aplicarVista(modo) {
+  const raiz = document.documentElement;
+  raiz.classList.toggle('compacto', modo === 'compacta');
+  raiz.classList.toggle('volante', modo === 'volante');
+  if (modo === 'compacta') { ecraEl.style.transform = ''; return; }
+  const [w, h] = modo === 'volante' ? [VL_LARG, VL_ALT] : [1920, 1080];
+  ecraEl.style.transform = `scale(${Math.min(window.innerWidth / w, window.innerHeight / h)})`;
 }
 const kCartao = (titulo, corpo, extra = '') => `<section class="k-cartao"${extra}><span class="l">${titulo}</span>${corpo}</section>`;
 const kLinha = (a, b, cor) => `<div class="row sb ai-b g8"><span class="f16 m">${a}</span><span class="f22 fw7"${cor ? ` style="color:${cor}"` : ''}>${b}</span></div>`;
@@ -673,7 +687,7 @@ function compactoTreinos(d) {
   const ativa = prog.find((p) => !p.feito);
   const feitas = prog.filter((p) => p.feito).length;
   const lg = t.longo;
-  const voltasCorrida = def.voltas || s.voltas_corrida || null;
+  const voltasCorrida = s.voltas_corrida || null;
   const consumo = eu.consumo_volta;
   const totalKg = consumo && voltasCorrida ? (consumo * (voltasCorrida + 1)).toFixed(1) : null;
   const taxa = eu.desgaste_volta;
@@ -785,6 +799,7 @@ function legendaVoltas(voltas, comProjecao) {
 }
 
 // ---- peças comuns dos resumos
+const botaoVivo = '<button type="button" class="modo" data-vivo="1" style="margin-left:16px">Ver ecrã ao vivo</button>';
 const bolas = (lista, t = 18) => `<span class="row g4">${lista.map((c) => pneu(c, t)).join('')}</span>`;
 function heroi(titulo, valor, sub, cor) {
   return `<div class="p col pd16-20 g4 mw0"><span class="l">${titulo}</span><span class="f44 fw7 lh1" style="color:${cor || '#F2F4F7'}">${valor}</span><span class="f15 m">${sub || '&nbsp;'}</span></div>`;
@@ -957,7 +972,7 @@ function resumoTreinos(d) {
 function renderResumo(d) {
   const r = d.resumo;
   const corpo = r.ecra === 'corrida' ? resumoCorrida(d) : r.ecra === 'qualificacao' ? resumoQuali(d) : resumoTreinos(d);
-  return `${cabecalho(d, 'Fim · ' + r.sessao, r.cor, `<span class="f32 fw7">Resumo da sessão</span>`, '')}${corpo}`;
+  return `${cabecalho(d, 'Fim · ' + r.sessao, r.cor, `<span class="f32 fw7">Resumo da sessão</span>${botaoVivo}`, '')}${corpo}`;
 }
 
 // ---- resumo na vista compacta (telemóvel)
@@ -984,14 +999,15 @@ function compactoResumo(d) {
   cards.push(kCartao('Tempos por volta', `<div style="overflow:hidden">${svgVoltas(r.voltas_lista, 330, 180).replace(/width="330" height="180"/, 'width="100%" height="180"')}</div>`));
   if (r.consumo_volta || r.desgaste_volta) cards.push(kCartao('Medições guardadas', medicoes(r)));
   cards.push(kCartao('A seguir', aSeguir(r)));
-  return `${kTopo(d, 'Fim · ' + r.sessao, '<span class="f20 fw7">Resumo</span>', '')}<div class="k-grelha">${cards.join('')}</div>`;
+  return `${kTopo(d, 'Fim · ' + r.sessao, '<span class="f20 fw7">Resumo</span>', botaoVivo)}<div class="k-grelha">${cards.join('')}</div>`;
 }
 
 // ------------------------------------------------------------------ ciclo
 let ultimo = null;
+let verResumo = true;          // no fim da sessão mostra o resumo; o botão "Ver ecrã ao vivo" volta atrás
 function render() {
   const d = ultimo;
-  if (!d || !d.pronto) { ecraEl.innerHTML = renderEspera(d); return; }
+  if (!d || !d.pronto) { botaoResumo.hidden = true; aplicarVista(modoVista() === 'compacta' ? 'compacta' : 'completa'); ecraEl.innerHTML = renderEspera(d); return; }
   if (autoTempos && Date.now() - ultimaTroca > 8000) {
     const k = MODOS.findIndex((m) => m[0] === modoTempos);
     modoTempos = MODOS[(k + 1) % MODOS.length][0];
@@ -1000,10 +1016,17 @@ function render() {
   const qual = def.ecra === 'auto' ? d.ecra : def.ecra;
   const alertas = alertasAtivos(d);
   alturaUtil = 952 - (alertas.length ? 72 : 0);
+  if (!d.resumo) verResumo = true;
+  const resumoDisponivel = !!d.resumo && def.ecra === 'auto';
+  botaoResumo.hidden = !(resumoDisponivel && !verResumo);
+  let modo = modoVista();
+  if (resumoDisponivel && verResumo && modo === 'volante') modo = 'compacta';   // no tablet o resumo usa a vista compacta
+  aplicarVista(modo);
   try {
     let html;
-    if (d.resumo && def.ecra === 'auto') html = vistaCompacta() ? compactoResumo(d) : renderResumo(d);
-    else if (vistaCompacta()) html = renderCompacto(d, qual);
+    if (resumoDisponivel && verResumo) html = modo === 'compacta' ? compactoResumo(d) : renderResumo(d);
+    else if (modo === 'volante') html = renderVolante(d);
+    else if (modo === 'compacta') html = renderCompacto(d, qual);
     else if (qual === 'corrida' && d.corrida) html = renderCorrida(d);
     else if (qual === 'qualificacao' && d.quali) html = renderQuali(d);
     else if (qual === 'treinos' && d.treinos) html = renderTreinos(d);
@@ -1022,25 +1045,28 @@ function render() {
 // O ecrã é redesenhado 5 vezes por segundo: um "click" precisa que o botão ainda exista quando largas o rato,
 // por isso os botões reagem logo ao carregar (pointerdown). O "click" só serve para o teclado.
 function acaoBotao(alvo) {
+  if (alvo.closest('[data-vivo]')) { verResumo = false; render(); return true; }
   const m = alvo.closest('[data-modo]');
   if (m) { modoTempos = m.dataset.modo; autoTempos = false; render(); return true; }
   if (alvo.closest('[data-auto]')) { autoTempos = !autoTempos; ultimaTroca = Date.now(); render(); return true; }
   return false;
 }
 ecraEl.addEventListener('pointerdown', (e) => { if (e.button === 0 && acaoBotao(e.target)) e.preventDefault(); });
-ecraEl.addEventListener('click', (e) => { if (e.detail === 0) acaoBotao(e.target); });
+ecraEl.addEventListener('click', (e) => { if (e.detail === 0) acaoBotao(e.target) || acaoVolante(e.target); });
+// ecrã inteiro só funciona dentro de um gesto (largar o dedo ou o rato); o ecrã é redesenhado 5x/s, por isso não uso "click"
+ecraEl.addEventListener('pointerup', (e) => { if (e.button === 0) acaoVolante(e.target); });
+function acaoVolante(alvo) {
+  const b = alvo.closest('[data-acao]');
+  if (!b) return false;
+  if (b.dataset.acao === 'definicoes') abrirDefinicoes();
+  else if (b.dataset.acao === 'ecra-inteiro') vlEcraInteiro();
+  else if (b.dataset.acao === 'imagem') vlGuardarImagem();
+  return true;
+}
 
 function escalar() {
-  const compacta = vistaCompacta();
-  const mudou = document.documentElement.classList.contains('compacto') !== compacta;
-  document.documentElement.classList.toggle('compacto', compacta);
-  if (compacta) {
-    ecraEl.style.transform = '';
-  } else {
-    const k = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
-    ecraEl.style.transform = `scale(${k})`;
-  }
-  if (mudou && ultimo) render();
+  if (ultimo) render();
+  else aplicarVista(modoVista() === 'compacta' ? 'compacta' : 'completa');
 }
 window.addEventListener('resize', escalar);
 escalar();
@@ -1052,21 +1078,37 @@ function ligar() {
 }
 ligar();
 
+// ------------------------------------------------------------------ voltar ao resumo
+botaoResumo.addEventListener('click', () => { verResumo = true; render(); });
+
 // ------------------------------------------------------------------ painel de definições
 const caixa = document.getElementById('definicoes');
-document.getElementById('abrir-def').addEventListener('click', () => {
+document.getElementById('abrir-def').addEventListener('click', () => abrirDefinicoes());
+function abrirDefinicoes() {
   document.getElementById('def-ecra').value = def.ecra;
   document.getElementById('def-vista').value = def.vista;
-  document.getElementById('def-voltas').value = def.voltas || '';
+  document.getElementById('def-voltas').value = (ultimo && ultimo.sessao && ultimo.sessao.voltas_manuais) || '';
+  document.getElementById('def-aviso').hidden = true;
   caixa.hidden = false;
-});
+}
 document.getElementById('def-fechar').addEventListener('click', () => { caixa.hidden = true; });
 document.getElementById('def-guardar').addEventListener('click', () => {
   def.ecra = document.getElementById('def-ecra').value;
   def.vista = document.getElementById('def-vista').value;
   const v = parseInt(document.getElementById('def-voltas').value, 10);
-  def.voltas = v > 0 ? v : null;
   guardarDef();
+  // as voltas da corrida ficam no servidor (por circuito): servem para a estratégia, o resumo e todos os ecrãs
+  const voltas = v > 0 && v <= 99 ? v : null;
+  if (voltas !== ((ultimo && ultimo.sessao && ultimo.sessao.voltas_manuais) || null)) {
+    fetch('/definicoes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voltas }) })
+      .then((r) => { if (!r.ok) throw new Error(); })
+      .catch(() => {
+        const aviso = document.getElementById('def-aviso');
+        aviso.textContent = 'Não consegui guardar as voltas: entra numa sessão do jogo e tenta outra vez.';
+        aviso.hidden = false;
+        caixa.hidden = false;
+      });
+  }
   caixa.hidden = true;
   escalar();
   render();

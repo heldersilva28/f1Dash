@@ -334,7 +334,10 @@ class Simulador:
             sup = [92 + 2 * osc, 94 + 2 * osc, 96 + 3 * osc, 104 + 3 * osc] if eu else [90, 90, 90, 90]
             inner = [97, 99, 101, 108] if eu else [95, 95, 95, 95]
             trav = [540 + 80 * osc, 551 + 80 * osc, 612 + 120 * osc, 655 + 120 * osc]
-            tb += P.TELEMETRIA[FMT].pack(vel, 0.8, 0.0, 0.0, 0, 7, 11000, 0, 60, 0,
+            mudanca = max(1, min(8, vel // 40 + 1)) if c.ativo else 0
+            rpm = int(10200 + 1700 * (0.5 + 0.5 * osc)) if c.ativo else 0
+            luzes = max(0, min(100, int((rpm - 9500) / 3000 * 100)))
+            tb += P.TELEMETRIA[FMT].pack(vel, 0.8, 0.0, 0.0, 0, mudanca, rpm, 0, luzes, 0,
                                          *[int(x) for x in trav], *[int(x) for x in sup], *inner, 112,
                                          23.0 if True else 0, 23.0, 21.0, 21.0, 0, 0, 0, 0)
             ovtk = 1 if (eu and self.modo == 'corrida') else 0

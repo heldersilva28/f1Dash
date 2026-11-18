@@ -577,5 +577,59 @@ class TesteResumoCompleto(ComMemoriaTemporaria):
             self.assertEqual(pole['total_ms'], r['para_pole_ms'])
 
 
+# ---------------------------------------------------------------- correções da revisão
+class TesteRevisao(ComMemoriaTemporaria):
+    def test_plano_com_pneus_no_fim_para_nesta_volta(self):
+        p = E.planear(10, [conj('H', 30, 0)], dict(conj('M', 0, 0), vida_util=26), usados={'M'}, volta_atual=35)[0]
+        self.assertEqual(p['box'], [35])                      # box nesta volta, não numa que já passou
+        self.assertEqual(p['stints'][0]['voltas'], 1)
+
+    def test_stints_planeados_tem_pelo_menos_5_voltas(self):
+        # antes: "Macios 1 volta -> Médios 21" só para cumprir a regra dos dois compostos
+        p = E.planear(22, [conj('S', 13, 100), conj('M', 26, -300)], None)[0]
+        self.assertTrue(all(st['voltas'] >= 5 for st in p['stints']), p['stints'])
+        # o stint em curso pode acabar já, se for preciso
+        p = E.planear(20, [conj('H', 30, 0)], conj('M', 1, 0), usados={'M'})[0]
+        self.assertEqual(p['stints'][0]['voltas'], 1)
+
+    def test_conjuntos_sem_vida_nao_entram_no_plano(self):
+        planos = E.planear(10, [conj('S', 0, -900), conj('H', 30, 0)], conj('M', 5, 0), usados={'M'})
+        self.assertTrue(all(st['composto'] != 'S' for p in planos for st in p['stints']))
+
+    def test_voltas_escolhidas_a_mao_servem_para_tudo(self):
+        s = E.Sessao()
+        self.assertFalse(s.definir_voltas(22))                # ainda sem sessão: não há circuito
+        s.sessao = sessao(tipo=2, voltas=0)
+        self.assertTrue(s.definir_voltas(22))
+        self.assertEqual(s.voltas_corrida(), (22, 'definido por ti'))
+        self.assertEqual(E.ler_memoria()['voltas_manuais'][str(PISTA)], 22)
+        s.sessao = sessao(tipo=15, voltas=44)                 # na corrida manda o jogo
+        self.assertEqual(s.voltas_corrida(), (44, 'da corrida'))
+        s.sessao = sessao(tipo=2, voltas=0)
+        s.definir_voltas(None)
+        self.assertNotEqual(s.voltas_corrida()[1], 'definido por ti')
+
+    def test_plano_dos_treinos_usa_as_voltas_escolhidas(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'treinos', passos=60)
+        s.definir_voltas(10)
+        plano = s.fotografia()['treinos']['plano_corrida']
+        self.assertEqual(sum(st['voltas'] for st in plano['stints']), 10)
+
+
+# ---------------------------------------------------------------- vista do volante (tablet)
+class TesteVolante(ComMemoriaTemporaria):
+    def test_dados_do_volante_vem_do_jogo(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=60)
+        f = s.fotografia()
+        eu = f['eu']
+        self.assertEqual(eu['travao_bias'], 56)                  # repartição de travagem (estado do carro)
+        self.assertTrue(0 <= eu['luzes_rpm'] <= 100)             # luzes de rotações (telemetria)
+        self.assertTrue(1 <= eu['mudanca'] <= 8)
+        self.assertGreater(eu['rpm'], 9000)
+        self.assertEqual(f['sessao']['setores_m'], [2120, 5290, 7004])
+        self.assertEqual(len(eu['setores_sessao']), 3)
+        self.assertGreaterEqual(eu['dist_volta'], 0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

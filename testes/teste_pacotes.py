@@ -75,6 +75,16 @@ class TestePacotes(unittest.TestCase):
         self.assertEqual(nome, 'posicoes_voltas')
         self.assertEqual((c['inicio'], c['voltas'][0][3], c['voltas'][1][3]), (0, 5, 4))
 
+    def test_classificacao_nao_perde_carros_com_indice_alto(self):
+        dados = bytearray(pacote_vazio(2025, 8))
+        o = P.CABECALHO.size
+        dados[o] = 20                                     # só 20 classificados, mas o teu carro é o 21
+        P.CLASSIFICACAO.pack_into(dados, o + 1 + 21 * P.CLASSIFICACAO.size, 5, 44, 6, 10, 1, 3, 0, 106000, 4700.0,
+                                  0, 0, 1, *([0] * 24))
+        _, _, fc = P.descodificar(bytes(dados))
+        self.assertEqual(len(fc), 22)
+        self.assertEqual(fc[21]['posicao'], 5)
+
     def test_simulacao_completa(self):
         for modo in ('corrida', 'qualificacao', 'treinos'):
             with self.subTest(modo=modo):
