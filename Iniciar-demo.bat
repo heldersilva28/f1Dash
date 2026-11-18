@@ -6,8 +6,9 @@ echo Escolhe a sessao a simular:
 echo   1 - Corrida
 echo   2 - Qualificacao
 echo   3 - Treinos livres
-choice /c 123 /n /m "Opcao: "
-if errorlevel 3 (set MODO=treinos) else if errorlevel 2 (set MODO=qualificacao) else (set MODO=corrida)
+echo   4 - Contrarrelogio
+choice /c 1234 /n /m "Opcao: "
+if errorlevel 4 (set MODO=contrarrelogio) else if errorlevel 3 (set MODO=treinos) else if errorlevel 2 (set MODO=qualificacao) else (set MODO=corrida)
 %PY% f1dash.py --demo %MODO%
 pause
 exit /b

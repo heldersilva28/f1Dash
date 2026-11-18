@@ -279,7 +279,7 @@ def main():
     ap.add_argument('--porta-web', type=int, default=8080)
     ap.add_argument('--demo-formato', type=int, choices=[2020, 2026], default=2026,
                     help='formato UDP da demonstração: 2026 (F1 25) ou 2020 (F1 2020)')
-    ap.add_argument('--demo', choices=['corrida', 'qualificacao', 'treinos'],
+    ap.add_argument('--demo', choices=['corrida', 'qualificacao', 'treinos', 'contrarrelogio'],
                     help='simula uma sessão sem o jogo (para experimentar o painel)')
     ap.add_argument('--sem-browser', action='store_true', help='não abrir o browser automaticamente')
     a = ap.parse_args()

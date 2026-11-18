@@ -242,6 +242,8 @@ class Sessao:
         self.memoria = ler_memoria() if guardar else {}
         self.sessao = None
         self.referencia_pendente = None
+        self.tt_voltas = []            # contrarrelógio: as tuas voltas (não se apagam ao recomeçar a volta)
+        self.tt_pendente = None
         self.reiniciar(None)
         self.ultimo_pacote = 0.0
         self.formato = None
@@ -251,6 +253,10 @@ class Sessao:
     def reiniciar(self, uid):
         # a melhor volta da Q1 continua a servir de referência na Q2 e na Q3
         self.referencia_pendente = self._referencia_para_guardar() or self.referencia_pendente
+        # contrarrelógio: recomeçar a sessão no mesmo circuito não apaga as voltas que já fizeste
+        if self.sessao and self.sessao['tipo'] == 18 and self.tt_voltas:
+            self.tt_pendente = {'pista': self.sessao['pista'], 'voltas': self.tt_voltas}
+        self.tt_voltas = []
         self.uid = uid
         self.jogador = 0
         self.espectador = False
@@ -300,6 +306,7 @@ class Sessao:
         self.tempos_saida = deque(maxlen=5)
         self.tempos_entrada = deque(maxlen=5)
         self.estado_volta_atual = None
+        self.tipos_volta = set()        # todos os estados por que passou a volta em curso (garagem, saída, rápida…)
         # traçado (tempo por cada 10 m) para o delta ao vivo
         self.traco_atual = {}
         self.traco_melhor = None
@@ -342,6 +349,9 @@ class Sessao:
             if nome == 'sessao':
                 if self.sessao is None:
                     self._recuperar_referencia(c)
+                    pend, self.tt_pendente = self.tt_pendente, None
+                    if pend and c['tipo'] == 18 and pend['pista'] == c['pista']:
+                        self.tt_voltas = pend['voltas']
                 self.sessao = c
                 self.espectador = bool(c.get('espectador'))
                 self._aprender_corrida(c)
@@ -749,6 +759,7 @@ class Sessao:
             self.traco_atual = {}
             self.inicio_volta = {}
             self.estado_volta_atual = v['estado_piloto']
+            self.tipos_volta = {v['estado_piloto']}
             return
         if self.traco_atual and anterior and j < len(anterior) and anterior[j]['volta'] == v['volta'] \
                 and d < anterior[j]['dist_volta'] - self.RECUO_FLASHBACK:
@@ -761,20 +772,32 @@ class Sessao:
             self.minha_volta = v['volta']
             self._marcar_inicio_volta()
             self.estado_volta_atual = v['estado_piloto']
+            self.tipos_volta = {v['estado_piloto']}
         elif v['volta'] != self.minha_volta:
             ultima = v['ultima']
+            # o tipo de volta conta com tudo o que se passou nela: sair da garagem a meio torna-a volta de saída
+            saida, entrada = 3 in self.tipos_volta, 2 in self.tipos_volta
+            limpa = self.tipos_volta <= {1, 4}
             # traço de referência = melhor volta válida, percorrida do início ao fim com o painel aberto
             completa = bool(self.traco_atual) and min(self.traco_atual) <= 2 \
                 and max(self.traco_atual) * 10 >= self._comprimento() - 300
-            if ultima and completa and self.estado_volta_atual in (1, 4) and not self._ultima_invalida(anterior):
+            if ultima and completa and limpa and not self._ultima_invalida(anterior):
                 if self.tempo_melhor_traco is None or ultima < self.tempo_melhor_traco:
                     self.tempo_melhor_traco = ultima
                     self.traco_melhor = dict(self.traco_atual)
                     self.referencia_origem = SESSOES.get((self.sessao or {}).get('tipo'), None)
+            # contrarrelógio: guarda a volta acabada (setores do último pacote dessa volta)
+            if self.sessao and self.sessao['tipo'] == 18 and ultima and anterior and j < len(anterior):
+                a = anterior[j]
+                s1, s2 = a['s1'], a['s2']
+                tipo_volta = 'saida' if saida else 'entrada' if entrada else None if limpa else 'saida'
+                self.tt_voltas.append({
+                    'n': len(self.tt_voltas) + 1, 'ms': ultima, 's': [s1, s2, ultima - s1 - s2 if s1 and s2 else 0],
+                    'valida': not a['invalida'] and not tipo_volta, 'composto': self._composto(j), 'box': tipo_volta})
             # voltas de saída / entrada (para saber se ainda dá tempo na qualificação)
-            if self.estado_volta_atual == 3 and ultima:
+            if saida and not entrada and ultima:
                 self.tempos_saida.append(ultima)
-            if self.estado_volta_atual == 2 and ultima:
+            if entrada and not saida and ultima:
                 self.tempos_entrada.append(ultima)
             # consumo e desgaste por volta
             ini = self.inicio_volta
@@ -793,7 +816,9 @@ class Sessao:
             self.minha_volta = v['volta']
             self.traco_atual = {}
             self.estado_volta_atual = v['estado_piloto']
+            self.tipos_volta = set()
             self._marcar_inicio_volta()
+        self.tipos_volta.add(v['estado_piloto'])
         # traço tempo-distância desta volta (cada 10 m); só depois de fechar a anterior
         if d > 0:
             self.traco_atual.setdefault(int(d // 10), v['atual'])
@@ -1052,9 +1077,28 @@ class Sessao:
             x['rank'] = k + 1
         return [x for x in lista if x['rank'] <= 6 or x['eu']]
 
+    def _contrarrelogio(self):
+        """As tuas voltas no contrarrelógio, a mais recente primeiro, com a melhor, a ideal e a consistência."""
+        voltas = self.tt_voltas
+        validas = [x for x in voltas if x['valida']]
+        melhor = min(validas, key=lambda x: x['ms']) if validas else None
+        setores = [min((x['s'][k] for x in validas if x['s'][k] > 0), default=None) for k in range(3)]
+        perto = [x['ms'] for x in validas if melhor and x['ms'] <= melhor['ms'] * 1.03]   # sem as voltas com erros grandes
+        return {'voltas': list(reversed(voltas[-60:])), 'total': len(voltas), 'validas': len(validas),
+                'melhor_ms': melhor['ms'] if melhor else None, 'melhor_n': melhor['n'] if melhor else None,
+                'setores': setores, 'ideal_ms': sum(setores) if all(setores) else None,
+                'media_ms': int(media(perto)) if perto else None,
+                'consistencia_ms': round(desvio(perto)) if len(perto) >= 2 else None,
+                'ultima': voltas[-1] if voltas else None}
+
     def _resumo_quali(self, r, out):
         j = self.jogador
         q = out.get('quali') or {}
+        if self.sessao['tipo'] == 18 and self.tt_voltas:
+            # contrarrelógio: as voltas registadas pelo painel (o histórico do jogo perde-as ao recomeçar)
+            r['voltas_lista'] = [dict(x) for x in self.tt_voltas]
+            r['voltas'] = len(self.tt_voltas)
+            r['contrarrelogio'] = self._contrarrelogio()
         porIdx = {c['idx']: c for c in out['carros']}
         ordem = [porIdx[i] for i in q.get('ordem') or [] if i in porIdx]
         if j in (q.get('ordem') or []):
@@ -1616,6 +1660,11 @@ class Sessao:
         entrada = entrada or 125000
         res['saida_ms'] = int(saida)
         res['entrada_ms'] = int(entrada)
+        if tipo == 18:
+            # contrarrelógio: não há tempo limite nem adversários; mostra as tuas voltas
+            res['tentativa'] = {'ok': True, 'sem_limite': True, 'sair_ate_ms': 0}
+            res['contrarrelogio'] = self._contrarrelogio()
+            return res
         rest = self.sessao['tempo_restante'] * 1000
         v = self.voltas[self.jogador]
         ref = self.tempo_melhor_traco or (eu['melhor_ms'] if eu else None) or 100000

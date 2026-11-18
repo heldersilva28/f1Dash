@@ -104,6 +104,9 @@ class Simulador:
         elif modo == 'qualificacao':
             self.tipo, self.duracao = 6, 900
             self._preparar_quali()
+        elif modo == 'contrarrelogio':
+            self.tipo, self.duracao = 18, 0          # sem tempo limite, só o teu carro
+            self._preparar_contrarrelogio()
         else:
             self.tipo, self.duracao = 2, 3600
             self._preparar_treinos()
@@ -132,6 +135,13 @@ class Simulador:
             c.composto = 16
             c.na_garagem_ate = self.rng.uniform(5, 200)
         self.combustivel = 6.5
+
+    def _preparar_contrarrelogio(self):
+        for c in self.carros:
+            c.ativo = c.i == JOGADOR
+        eu = self.carros[JOGADOR]
+        eu.estado_piloto, eu.composto, eu.na_garagem_ate = 0, 16, 1.0
+        self.combustivel = 10.0
 
     def _preparar_treinos(self):
         for k, c in enumerate(self.carros[:len(GRELHA)]):
@@ -218,7 +228,8 @@ class Simulador:
         frac = dt * 1000 / c.volta_alvo
         for k in range(4):
             self.desgaste[k] += self.taxa_desgaste[k] * frac
-        self.combustivel = max(0.0, self.combustivel - 1.58 * frac)
+        if self.modo != 'contrarrelogio':             # no contrarrelógio do jogo o combustível não acaba
+            self.combustivel = max(0.0, self.combustivel - 1.58 * frac)
 
     def _fechar_volta(self, c):
         tempo = int(c.t_volta)
@@ -263,6 +274,8 @@ class Simulador:
             # qualificação / treinos: saída -> rápida -> entrada -> garagem
             if c.estado_piloto == 3:
                 c.estado_piloto = 1
+            elif c.estado_piloto == 1 and self.modo == 'contrarrelogio':
+                pass                                  # contrarrelógio: voltas rápidas seguidas
             elif c.estado_piloto == 1:
                 limite = 1 if self.modo == 'qualificacao' else (8 if c.i == JOGADOR else self.rng.choice([1, 2, 5, 8]))
                 feitas = sum(1 for _ in c.historico[-limite:])
@@ -373,7 +386,7 @@ class Simulador:
         if self.modo == 'corrida' and self.frame % 20 == 0 and self.pos_voltas:
             out.append(self._posicoes_voltas(t, f))
         fim = self.modo == 'corrida' and all(c.terminou for c in self.carros if c.ativo)
-        if self.modo != 'corrida' and self.t >= self.duracao and not self.fim_enviado:
+        if self.modo != 'corrida' and 0 < self.duracao <= self.t and not self.fim_enviado:
             self.eventos.append(b'SEND'.ljust(16, b'\x00'))
             self.fim_enviado = 1
         if fim and self.fim_enviado < 5 and self.frame % 20 == 0:
@@ -614,7 +627,7 @@ def _pacotes_2020(self):
         if not self.fim_enviado:
             self.eventos.append(b'SEND')
         self.fim_enviado += 1
-    if self.modo != 'corrida' and self.t >= self.duracao and not self.fim_enviado:
+    if self.modo != 'corrida' and 0 < self.duracao <= self.t and not self.fim_enviado:
         self.eventos.append(b'SEND')
         self.fim_enviado = 1
     for e in self.eventos:                      # mesmo evento, com os 7 bytes de dados do formato 2020
@@ -633,6 +646,8 @@ def criar(modo):
             sim.passo(0.05)
     elif modo == 'qualificacao':
         sim.avancar_rapido(500)
+    elif modo == 'contrarrelogio':
+        pass
     else:
         sim.avancar_rapido(1300)
     sim.eventos = sim.eventos[-3:]

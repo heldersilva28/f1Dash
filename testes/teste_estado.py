@@ -655,5 +655,80 @@ class TesteCanalRapido(ComMemoriaTemporaria):
         self.assertIsNone(E.Sessao(guardar=False).rapido())
 
 
+# ---------------------------------------------------------------- contrarrelógio
+class TesteContrarrelogio(ComMemoriaTemporaria):
+    def fazer_volta(self, s, n, tempo, uid=1, invalida=0):
+        """Uma volta inteira no contrarrelógio: setores a meio e a passagem pela meta."""
+        a = volta(n, 2500, 30000)
+        a.update(s1=30000, s2=48000, setor=2, invalida=invalida)
+        s.receber(cab(uid), 'voltas', [a])
+        b = volta(n + 1, 10, 200, ultima=tempo)
+        s.receber(cab(uid), 'voltas', [b])
+
+    def nova(self, uid=1, pista=PISTA):
+        s = E.Sessao(guardar=False)
+        ses = sessao(tipo=18)
+        ses['pista'] = pista
+        s.receber(cab(uid), 'sessao', ses)
+        s.receber(cab(uid), 'voltas', [volta(1, 100, 1000)])
+        return s
+
+    def test_recomecar_a_volta_nao_apaga_as_voltas(self):
+        s = self.nova()
+        self.fazer_volta(s, 1, 106500)
+        self.fazer_volta(s, 2, 106200)
+        s.receber(cab(), 'voltas', [volta(1, 100, 1000)])          # recomeçar: o contador de voltas volta atrás
+        self.fazer_volta(s, 1, 105900)
+        tt = s.fotografia()['quali']['contrarrelogio']
+        self.assertEqual([v['ms'] for v in tt['voltas']], [105900, 106200, 106500])   # a mais recente primeiro
+        self.assertEqual((tt['melhor_ms'], tt['melhor_n'], tt['validas']), (105900, 3, 3))
+
+    def test_recomecar_a_sessao_no_mesmo_circuito_mantem_as_voltas(self):
+        s = self.nova(uid=1)
+        self.fazer_volta(s, 1, 106500)
+        ses = sessao(tipo=18)
+        s.receber(cab(2), 'sessao', ses)                            # o jogo começa outra sessão
+        self.assertEqual(len(s.tt_voltas), 1)
+        outro = sessao(tipo=18)
+        outro['pista'] = 11
+        s.receber(cab(3), 'sessao', outro)                          # noutro circuito começa do zero
+        self.assertEqual(s.tt_voltas, [])
+
+    def test_sem_tempo_limite_e_volta_invalida(self):
+        s = self.nova()
+        self.fazer_volta(s, 1, 104000, invalida=1)
+        self.fazer_volta(s, 2, 106000)
+        f = s.fotografia()
+        q = f['quali']
+        self.assertEqual(q['tentativa'], {'ok': True, 'sem_limite': True, 'sair_ate_ms': 0})
+        tt = q['contrarrelogio']
+        self.assertEqual((tt['melhor_ms'], tt['validas'], tt['total']), (106000, 1, 2))   # a inválida não conta
+        self.assertFalse(tt['voltas'][1]['valida'])
+        self.assertEqual(tt['voltas'][0]['s'], [30000, 48000, 28000])
+
+    def test_volta_de_saida_da_garagem(self):
+        sim = demo.criar('contrarrelogio')
+        s = E.Sessao(guardar=False)
+        for _ in range(60 * 60 * 5):
+            sim.passo(1 / 60)
+            for p in sim.pacotes():
+                r = P.descodificar(p)
+                if r:
+                    s.receber(*r)
+        tt = s.fotografia()['quali']['contrarrelogio']
+        primeira = tt['voltas'][-1]
+        self.assertEqual((primeira['n'], primeira['box'], primeira['valida']), (1, 'saida', False))
+        self.assertGreaterEqual(tt['validas'], 1)
+
+    def test_resumo_com_as_voltas_do_contrarrelogio(self):
+        s = self.nova()
+        self.fazer_volta(s, 1, 106500)
+        self.fazer_volta(s, 2, 106100)
+        s.receber(cab(), 'evento', {'codigo': 'SEND'})
+        r = s.fotografia()['resumo']
+        self.assertEqual([v['ms'] for v in r['voltas_lista']], [106500, 106100])
+        self.assertEqual(r['contrarrelogio']['melhor_ms'], 106100)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

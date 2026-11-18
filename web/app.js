@@ -296,6 +296,23 @@ function renderCorrida(d) {
 }
 
 // ------------------------------------------------------------------ QUALIFICAÇÃO
+// ------------------------------------------------------------------ contrarrelógio: as tuas voltas
+function listaVoltasTT(tt, max = 24) {
+  const linhas = (tt.voltas || []).slice(0, max).map((v) => {
+    const melhor = v.n === tt.melhor_n;
+    const dif = tt.melhor_ms && v.valida && !melhor ? fmtD(v.ms - tt.melhor_ms) : '';
+    const corSetor = (k) => !v.valida ? '#6B7684' : v.s[k] && v.s[k] === tt.setores[k] ? '#B57BFF' : '#F2F4F7';
+    const nota = v.box ? `<span class="f13 m">${v.box === 'saida' ? 'saída' : 'entrada'}</span>` : !v.valida ? '<span class="f13 c-verm2">inválida</span>' : esc(dif);
+    return `<div class="g ai-c f17" style="grid-template-columns:40px 24px repeat(3,minmax(0,1fr)) 92px 66px;gap:6px;height:34px;padding:0 8px;border-radius:6px;${melhor ? 'background:#3DDC8422;font-weight:700' : ''}${!v.valida ? ';opacity:.6' : ''}">
+      <span class="m fw7">V${v.n}</span>${pneu(v.composto, 20)}
+      ${[0, 1, 2].map((k) => `<span class="tr f15" style="color:${corSetor(k)}">${v.s[k] ? fmtS(v.s[k]) : '—'}</span>`).join('')}
+      <span class="tr" style="color:${melhor ? '#3DDC84' : v.valida ? '#F2F4F7' : '#98A2B3'}">${fmtV(v.ms)}</span><span class="tr f14 m">${nota}</span></div>`;
+  }).join('');
+  return `<div class="g f12 fw6 m" style="grid-template-columns:40px 24px repeat(3,minmax(0,1fr)) 92px 66px;gap:6px;padding:0 8px 6px;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #232B35">
+      <span>Volta</span><span></span><span class="tr">S1</span><span class="tr">S2</span><span class="tr">S3</span><span class="tr">Tempo</span><span class="tr">Dif.</span></div>
+    ${linhas || '<span class="f16 m" style="padding:12px 8px">As tuas voltas aparecem aqui quando acabares a primeira</span>'}`;
+}
+
 function renderQuali(d) {
   const eu = d.eu, q = d.quali || {}, s = d.sessao;
   const porIdx = Object.fromEntries(d.carros.map((c) => [c.idx, c]));
@@ -342,12 +359,16 @@ function renderQuali(d) {
   const conj = (q.conjuntos || []).map((c) => `<div class="g12 ai-c g" style="grid-template-columns:26px minmax(0,1fr) auto;padding:6px 0;border-bottom:1px solid #1B222A">
       ${pneu(c.composto, 24)}<span class="f17">${TN[c.composto]} ${c.novo ? 'novos' : `usados · ${c.desgaste}%`}</span><span class="f17 fw6" style="color:${c.novo && c.composto === 'S' ? '#3DDC84' : '#F2F4F7'}">×${c.qtd}</span></div>`).join('') || '<span class="m">Sem dados de pneus ainda</span>';
   const elim = q.corte ? `eliminados P${q.corte + 1}–P${ordem.length}` : '';
-  return `${cabecalho(d, 'Qualificação', eu.cor, `
-      <span class="f22 fw7 pd6-12 r6 bg-claro c-escuro">${esc(s.nome)}</span>
+  const tt = q.contrarrelogio;          // contrarrelógio: sem tempo limite nem adversários
+  const ultTT = tt && tt.ultima;
+  const centro = tt
+    ? `<span class="f48 fw7 lh1">${tt.validas}</span><span class="f16 m">${tt.validas === 1 ? 'volta válida' : 'voltas válidas'} · ${tt.total} no total</span>`
+    : `<span class="f22 fw7 pd6-12 r6 bg-claro c-escuro">${esc(s.nome)}</span>
       <span class="f48 fw7 lh1">${fmtRelogio(s.restante)}</span>
-      <span class="f16 m">restantes${elim ? ' · ' + elim : ''}</span>`, pilulaEstado(eu))}
+      <span class="f16 m">restantes${elim ? ' · ' + elim : ''}</span>`;
+  return `${cabecalho(d, tt ? 'Contrarrelógio' : 'Qualificação', eu.cor, centro, pilulaEstado(eu))}
   <div class="cresce mh0 g16" style="display:grid;grid-template-columns:440px minmax(0,1fr) 480px">
-    <section class="pd14-12 g6 mh0 oh p col">
+    ${tt ? `<section class="pd14-12 g4 mh0 oh p col"><div class="row sb" style="padding:0 8px 6px"><span class="l">As tuas voltas</span><span class="f13 m">a mais recente em cima</span></div>${listaVoltasTT(tt)}</section>` : `<section class="pd14-12 g6 mh0 oh p col">
       <div class="pb6 bb tab" style="grid-template-columns:30px 6px minmax(0,1fr) 98px 74px 14px;border-radius:0">
         <span class="l">P</span><span></span><span class="l">Piloto</span><span class="tr l">Melhor</span><span class="tr l">Dif.</span><span></span></div>
       ${linhas}
@@ -355,7 +376,7 @@ function renderQuali(d) {
         <span class="g6 row"><span class="w10 h10 redondo bg-roxo"></span>Volta rápida</span>
         <span class="g6 row"><span class="w10 h10 redondo bg-azul"></span>Saída/entrada</span>
         <span class="g6 row"><span class="w10 h10 redondo bg-cinza"></span>Garagem</span></div>
-    </section>
+    </section>`}
 
     <div class="g16 mh0 col">
       <div class="cresce mh0 pd22-28 g24 ai-c p g" style="grid-template-columns:minmax(0,1fr) 300px">
@@ -369,7 +390,7 @@ function renderQuali(d) {
         </div>
         <div class="g12 col" style="border-left:1px solid #232B35;padding-left:24px">
           <div class="col"><span class="l">Previsão de volta</span><span class="f44 fw7" data-r="previsao">${fmtV(eu.previsao_ms)}</span>
-            <span class="f17 fw6" style="color:${passa === 'abaixo do corte' ? '#FF7A7A' : '#3DDC84'}">${prevPos ? `→ P${prevPos}${passa ? ' · ' + passa : ''}` : ''}</span></div>
+            <span class="f17 fw6" style="color:${passa === 'abaixo do corte' ? '#FF7A7A' : '#3DDC84'}">${prevPos && !tt ? `→ P${prevPos}${passa ? ' · ' + passa : ''}` : ''}</span></div>
           <div class="col"><span class="l">Tempo de volta</span><span class="f30 fw6" data-r="atual">${fmtV(eu.atual_ms)}</span></div>
         </div>
       </div>
@@ -382,10 +403,11 @@ function renderQuali(d) {
         <div class="cols3 g14 g">${secs}</div>
       </div>
       <div class="cols4 g16" style="display:grid">
-        <div class="pd18-20 g4 p col"><span class="l">Melhor volta</span><span class="f36 fw7">${fmtV(eu.melhor_ms)}</span><span class="f15 m">P${(ordem.findIndex((c) => c.eu) + 1) || '—'} · ${TN[eu.composto] || ''}</span></div>
+        <div class="pd18-20 g4 p col"><span class="l">Melhor volta</span><span class="f36 fw7">${fmtV(eu.melhor_ms)}</span><span class="f15 m">${tt ? (tt.melhor_n ? 'Volta ' + tt.melhor_n : '&nbsp;') : 'P' + ((ordem.findIndex((c) => c.eu) + 1) || '—')} · ${TN[eu.composto] || ''}</span></div>
         <div class="pd18-20 g4 p col"><span class="l">Volta ideal</span><span class="f36 fw7 c-verde">${fmtV(q.ideal_ms)}</span><span class="f15 m">Soma dos teus melhores setores</span></div>
-        <div class="pd18-20 g4 p col"><span class="l">Margem ao corte</span><span class="f36 fw7" style="color:${q.margem_ms == null ? '#98A2B3' : q.margem_ms > 0 ? '#FFB020' : '#FF4D4D'}">${q.margem_ms == null ? '—' : (q.margem_ms / 1000).toFixed(3) + ' s'}</span><span class="f15 m">${q.corte_seguinte ? (q.margem_ms >= 0 ? 'Acima' : 'Abaixo') + ' de P' + (q.corte + 1) + ' (' + esc(q.corte_seguinte) + ')' : 'Sem eliminação nesta sessão'}</span></div>
-        <div class="pd18-20 g4 p col"><span class="l">Para a pole</span><span class="f36 fw7 c-roxo">${pole && eu.melhor_ms ? fmtD(eu.melhor_ms - pole) : '—'}</span><span class="f15 m">${esc(q.pole_codigo || '')} · ${fmtV(pole)}</span></div>
+        ${tt ? `<div class="pd18-20 g4 p col"><span class="l">Última volta</span><span class="f36 fw7" style="color:${ultTT && !ultTT.valida ? '#98A2B3' : '#F2F4F7'}">${fmtV(ultTT && ultTT.ms)}</span><span class="f15 m">${!ultTT ? '&nbsp;' : !ultTT.valida ? (ultTT.box ? 'Volta de ' + (ultTT.box === 'saida' ? 'saída' : 'entrada') : 'Inválida') : tt.melhor_ms ? fmtD(ultTT.ms - tt.melhor_ms) + ' vs melhor' : ''}</span></div>
+        <div class="pd18-20 g4 p col"><span class="l">Consistência</span><span class="f36 fw7" style="color:${tt.consistencia_ms == null ? '#98A2B3' : tt.consistencia_ms < 200 ? '#3DDC84' : '#FFB020'}">${tt.consistencia_ms == null ? '—' : '±' + (tt.consistencia_ms / 1000).toFixed(3)}</span><span class="f15 m">Média ${fmtV(tt.media_ms)} (voltas a 3% da melhor)</span></div>` : `<div class="pd18-20 g4 p col"><span class="l">Margem ao corte</span><span class="f36 fw7" style="color:${q.margem_ms == null ? '#98A2B3' : q.margem_ms > 0 ? '#FFB020' : '#FF4D4D'}">${q.margem_ms == null ? '—' : (q.margem_ms / 1000).toFixed(3) + ' s'}</span><span class="f15 m">${q.corte_seguinte ? (q.margem_ms >= 0 ? 'Acima' : 'Abaixo') + ' de P' + (q.corte + 1) + ' (' + esc(q.corte_seguinte) + ')' : 'Sem eliminação nesta sessão'}</span></div>
+        <div class="pd18-20 g4 p col"><span class="l">Para a pole</span><span class="f36 fw7 c-roxo">${pole && eu.melhor_ms ? fmtD(eu.melhor_ms - pole) : '—'}</span><span class="f15 m">${esc(q.pole_codigo || '')} · ${fmtV(pole)}</span></div>`}
       </div>
       <div class="pd16-22 cols3 g24 p g">
         <div class="g6 col"><div class="ai-b row sb"><span class="l">Bateria ERS</span><span class="f24 fw7 c-azul">${eu.ers_pct ?? '—'}%</span></div>
@@ -397,7 +419,16 @@ function renderQuali(d) {
     </div>
 
     <div class="g16 mh0 col">
-      <section class="pd18-22 g10 p col">
+      ${tt ? `<section class="pd18-22 g10 p col">
+        <span class="l">A tua sessão</span>
+        ${kLinha('Melhor volta', fmtV(tt.melhor_ms) + (tt.melhor_n ? ` <span class="f15 fw5 m">V${tt.melhor_n}</span>` : ''), '#3DDC84')}
+        ${kLinha('Volta ideal', fmtV(tt.ideal_ms), '#B57BFF')}
+        <span class="f14 m">${tt.ideal_ms && tt.melhor_ms ? `Juntando os teus melhores setores ganhavas ${((tt.melhor_ms - tt.ideal_ms) / 1000).toFixed(3)} s` : 'Soma dos teus melhores setores'}</span>
+        ${kLinha('Média das boas voltas', fmtV(tt.media_ms))}
+      </section>
+      <section class="pd18-22 g10 p col"><span class="l">Os teus melhores setores</span>
+        <div class="cols3 g8 g">${[0, 1, 2].map((k) => `<div class="cx" style="border-top:3px solid #B57BFF"><span class="f13 m">Setor ${k + 1}</span><span class="f22 fw7 c-roxo">${tt.setores[k] ? fmtS(tt.setores[k]) : '—'}</span></div>`).join('')}</div>
+      </section>` : `<section class="pd18-22 g10 p col">
         <span class="l">Tempo e tentativas</span>
         <div class="g14 r8 pd12-14 row" style="background:${tent.ok ? '#0F2A1A' : '#2A1215'};border:1px solid ${tent.ok ? '#1F6B3D' : '#7A2228'}">
           <span class="w12 h12 redondo fixo" style="background:${tent.ok ? '#3DDC84' : '#FF4D4D'}"></span>
@@ -409,7 +440,7 @@ function renderQuali(d) {
           <span>Volta entrada<br><b class="f20 c-claro">${fmtRelogio((q.entrada_ms || 0) / 1000)}</b></span>
           ${q.tempos_box_fonte && q.tempos_box_fonte !== 'do jogo' ? `<span class="f13" style="grid-column:1/-1">Saída e entrada ${esc(q.tempos_box_fonte)}</span>` : ''}</div>
       </section>
-      <section class="pd18-22 g10 p col"><span class="l">Tráfego na pista</span>${traf}</section>
+      <section class="pd18-22 g10 p col"><span class="l">Tráfego na pista</span>${traf}</section>`}
       <section class="pd18-22 g10 p col">
         <span class="l">Temperatura dos pneus · alvo 90–105°</span>
         <div class="cols2 g10 g">
@@ -417,7 +448,7 @@ function renderQuali(d) {
         </div>
         <span class="f15 fw6" style="color:${frio.length ? '#4DA3FF' : '#3DDC84'}">${frio.length ? 'Fria: ' + frio.join(', ') + ' — aquece antes da volta' : 'Todos os pneus na janela'}</span>
       </section>
-      <section class="cresce mh0 pd18-22 g8 oh p col"><span class="l">Conjuntos de pneus</span>${conj}</section>
+      ${tt ? '' : `<section class="cresce mh0 pd18-22 g8 oh p col"><span class="l">Conjuntos de pneus</span>${conj}</section>`}
     </div>
   </div>`;
 }
@@ -668,19 +699,24 @@ function compactoQuali(d) {
     const fora = q.corte && k >= q.corte;
     return `<div class="k-fila${c.eu ? ' eu' : ''}" style="${c.eu ? `background:${c.cor}33` : fora ? 'background:#2A1215' : ''}"><span class="fw7" style="color:${fora ? '#FF7A7A' : '#98A2B3'}">${k + 1}</span><span class="barra-eq" style="background:${c.cor}"></span>${linhaPiloto(c)}<span class="tr">${fmtV(c.melhor_ms)}</span><span></span></div>`;
   }).join('');
-  return `${kTopo(d, s.nome, `<span class="f32 fw7">${fmtRelogio(s.restante)}</span>`, pilulaEstado(eu))}
+  const topoTT = q.contrarrelogio ? `<span class="f32 fw7">${q.contrarrelogio.validas}</span><span class="f16 m">voltas válidas</span>` : '';
+  return `${kTopo(d, s.nome, topoTT || `<span class="f32 fw7">${fmtRelogio(s.restante)}</span>`, pilulaEstado(eu))}
   <div class="k-grelha">
     ${kCartao('Delta ao teu melhor' + ref, delta == null
       ? `<span class="f28 fw7 m">${eu.melhor_ms ? 'À espera da volta rápida' : 'Ainda sem referência'}</span>`
       : `<span class="k-grande" style="color:${deltaCor}">${fmtD(delta)}</span>`
-      + `${kLinha('Previsão', fmtV(eu.previsao_ms))}${prev ? kLinha('Posição prevista', 'P' + prev, q.corte && prev > q.corte ? '#FF7A7A' : '#3DDC84') : ''}`, ' style="grid-column:1/-1"')}
-    ${kCartao('Sessão', `${kLinha('Melhor volta', fmtV(eu.melhor_ms))}${kLinha('Posição', minha >= 0 ? 'P' + (minha + 1) : '—')}
+      + `${kLinha('Previsão', fmtV(eu.previsao_ms))}${prev && !q.contrarrelogio ? kLinha('Posição prevista', 'P' + prev, q.corte && prev > q.corte ? '#FF7A7A' : '#3DDC84') : ''}`, ' style="grid-column:1/-1"')}
+    ${q.contrarrelogio ? kCartao('Sessão', `${kLinha('Última volta', fmtV(q.contrarrelogio.ultima && q.contrarrelogio.ultima.ms))}
+      ${kLinha('Consistência', q.contrarrelogio.consistencia_ms == null ? '—' : '±' + (q.contrarrelogio.consistencia_ms / 1000).toFixed(3), '#3DDC84')}
+      ${kLinha('Média das boas voltas', fmtV(q.contrarrelogio.media_ms))}`) : kCartao('Sessão', `${kLinha('Melhor volta', fmtV(eu.melhor_ms))}${kLinha('Posição', minha >= 0 ? 'P' + (minha + 1) : '—')}
       ${kLinha('Margem ao corte', q.margem_ms == null ? '—' : (q.margem_ms / 1000).toFixed(3) + ' s', q.margem_ms == null ? null : q.margem_ms > 0 ? '#FFB020' : '#FF4D4D')}
       ${kLinha('Para a pole', q.pole_ms && eu.melhor_ms ? fmtD(eu.melhor_ms - q.pole_ms) : '—', '#B57BFF')}`)}
-    ${kCartao('Tentativas', `<span class="f22 fw7" style="color:${tent.ok ? '#3DDC84' : '#FF4D4D'}">${tent.ok ? 'Ainda dá para mais 1' : 'Já não dá para outra'}</span>
+    ${q.contrarrelogio ? '' : kCartao('Tentativas', `<span class="f22 fw7" style="color:${tent.ok ? '#3DDC84' : '#FF4D4D'}">${tent.ok ? 'Ainda dá para mais 1' : 'Já não dá para outra'}</span>
       <span class="f15 m">${tent.ok ? 'Sai do box até faltarem ' + fmtRelogio((tent.sair_ate_ms || 0) / 1000) : 'Aproveita esta volta'}</span>`)}
     ${kCartao('Temperatura dos pneus · alvo 90–105°', kPneus(eu))}
-    ${kCartao('Tabela', `<div class="col g4">${filas || '<span class="m">Ainda sem tempos</span>'}</div>`)}
+    ${q.contrarrelogio ? kCartao(`As tuas voltas · ${q.contrarrelogio.validas} válidas`, `${kLinha('Melhor', fmtV(q.contrarrelogio.melhor_ms), '#3DDC84')}${kLinha('Ideal', fmtV(q.contrarrelogio.ideal_ms), '#B57BFF')}
+      <div class="col g2" style="margin-top:6px">${(q.contrarrelogio.voltas || []).slice(0, 10).map((v) => `<div class="row sb f17" style="opacity:${v.valida ? 1 : 0.55}"><span class="m">V${v.n}</span><span style="color:${v.n === q.contrarrelogio.melhor_n ? '#3DDC84' : '#F2F4F7'}">${fmtV(v.ms)}</span><span class="f14 m" style="min-width:64px;text-align:right">${v.box ? (v.box === 'saida' ? 'saída' : 'entrada') : !v.valida ? 'inválida' : v.n === q.contrarrelogio.melhor_n ? 'melhor' : fmtD(v.ms - q.contrarrelogio.melhor_ms)}</span></div>`).join('') || '<span class="m">Ainda sem voltas</span>'}</div>`, ' style="grid-column:1/-1"')
+      : kCartao('Tabela', `<div class="col g4">${filas || '<span class="m">Ainda sem tempos</span>'}</div>`)}
   </div>`;
 }
 

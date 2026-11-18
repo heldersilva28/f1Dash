@@ -152,6 +152,7 @@ Da primeira vez, o Windows pode perguntar se deixas o Python usar a rede. Escolh
 | **Delta ao vivo** | Contra a tua melhor volta do fim de semana: a da Q1 continua a ser a referência na Q2 e na Q3. Com previsão do tempo e da posição. |
 | **Mini-setores** | 8 por setor, comparados com a tua melhor volta e com a melhor da sessão. |
 | **Números-chave** | Volta ideal, margem para o corte e diferença para a pole. |
+| **Contrarrelógio** | No modo contrarrelógio o ecrã mostra a lista das tuas voltas (setores, tempo e diferença para a melhor), a volta ideal, a média e a consistência. As voltas não se perdem quando recomeças a volta ou a sessão no mesmo circuito. |
 | **Gestão da sessão** | Se ainda dá para mais uma tentativa, tráfego à tua volta, temperatura dos pneus e conjuntos disponíveis. |
 
 ### 🔧 Treinos livres
@@ -363,7 +364,7 @@ Para experimentar sem o jogo: `python f1dash.py --demo corrida --demo-formato 20
 |---|---|---|
 | `--porta-udp` | `20777` | Porta onde o jogo envia a telemetria |
 | `--porta-web` | `8080` | Porta do painel no browser |
-| `--demo` | | Simula `corrida`, `qualificacao` ou `treinos` sem o jogo |
+| `--demo` | | Simula `corrida`, `qualificacao`, `treinos` ou `contrarrelogio` sem o jogo |
 | `--demo-formato` | `2026` | Formato dos pacotes da simulação: `2026` (F1 25) ou `2020` (F1 2020) |
 | `--sem-browser` | | Não abre o browser ao arrancar |
 
