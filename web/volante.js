@@ -270,7 +270,7 @@ function vlVizinho(v, frente) {
   }
   return `<section class="p" style="padding: 10px 18px; display: flex; flex-direction: column">
         <span class="l">${titulo} · P${v.pos}</span>
-        <div style="display: flex; align-items: baseline; justify-content: space-between"><b style="font-size: 36px">${esc(v.codigo)}</b><span style="font-size: 54px; font-weight: 700; line-height: 1.05; color: ${cor}">${v.gap_s.toFixed(3)}</span></div>
+        <div style="display: flex; align-items: baseline; justify-content: space-between"><b style="font-size: 36px">${esc(v.codigo)}</b><span style="font-size: 54px; font-weight: 700; line-height: 1.05; color: ${cor}">${v.gap_s == null ? '—' : v.gap_s.toFixed(3)}</span></div>
         <span style="font-size: 17px; color: ${corT}; font-weight: 600">${tend}</span>
       </section>`;
 }

@@ -1,9 +1,11 @@
-"""Leitura dos pacotes UDP do EA SPORTS F1 25 (formatos 2025 e 2026 / 2026 Season Pack).
+"""Leitura dos pacotes UDP do EA SPORTS F1 25 (formatos 2025 e 2026 / 2026 Season Pack) e do F1 2020.
 
-Cada pacote começa com um cabeçalho de 29 bytes. O tamanho de cada pacote é verificado
-contra os tamanhos oficiais da especificação (ver TAMANHOS_OFICIAIS) no arranque.
+Cada pacote começa com um cabeçalho de 29 bytes (24 no F1 2020, lido em f1_2020.py). O tamanho de cada pacote é
+verificado contra os tamanhos oficiais da especificação (ver TAMANHOS_OFICIAIS) no arranque.
 """
 import struct
+
+from . import f1_2020
 
 CABECALHO = struct.Struct('<HBBBBBQfIIBB')  # 29 bytes
 
@@ -77,7 +79,7 @@ def tamanho_esperado(fmt, pid):
 
 def verificar_tamanhos():
     """Confirma que as estruturas batem certo com os tamanhos oficiais da EA."""
-    erros = []
+    erros = f1_2020.verificar_tamanhos()
     for fmt, tabela in TAMANHOS_OFICIAIS.items():
         for pid, oficial in tabela.items():
             t = tamanho_esperado(fmt, pid)
@@ -328,6 +330,8 @@ LEITORES = {1: 'sessao', 2: 'voltas', 3: 'evento', 4: 'participantes', 6: 'telem
 
 def descodificar(dados):
     """Devolve (cabeçalho, nome_do_pacote, conteúdo) ou None se o pacote não interessa/for inválido."""
+    if len(dados) >= 2 and struct.unpack_from('<H', dados)[0] == f1_2020.FORMATO:
+        return f1_2020.descodificar(dados)
     if len(dados) < CABECALHO.size:
         return None
     cab = ler_cabecalho(dados)

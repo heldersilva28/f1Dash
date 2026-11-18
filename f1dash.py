@@ -1,4 +1,4 @@
-"""F1 Dash — painel para o segundo monitor (EA SPORTS F1 25 / 2026 Season Pack).
+"""F1 Dash — painel para o segundo monitor (EA SPORTS F1 25 / 2026 Season Pack, e também F1 2020).
 
 Uso:
     python f1dash.py                 # escuta o jogo na porta UDP 20777 e abre o painel em http://localhost:8080
@@ -277,6 +277,8 @@ def main():
     ap = argparse.ArgumentParser(description='Painel F1 para o segundo monitor')
     ap.add_argument('--porta-udp', type=int, default=20777)
     ap.add_argument('--porta-web', type=int, default=8080)
+    ap.add_argument('--demo-formato', type=int, choices=[2020, 2026], default=2026,
+                    help='formato UDP da demonstração: 2026 (F1 25) ou 2020 (F1 2020)')
     ap.add_argument('--demo', choices=['corrida', 'qualificacao', 'treinos'],
                     help='simula uma sessão sem o jogo (para experimentar o painel)')
     ap.add_argument('--sem-browser', action='store_true', help='não abrir o browser automaticamente')
@@ -293,8 +295,9 @@ def main():
         sessao.guardar = False      # a simulação não pode estragar o que o painel aprendeu das tuas corridas
         sessao.memoria = {}
         import demo
-        threading.Thread(target=demo.correr, args=(a.demo, a.porta_udp), daemon=True).start()
-        print(f'[OK] Modo demonstração: {a.demo}')
+        threading.Thread(target=demo.correr, args=(a.demo, a.porta_udp), kwargs={'formato': a.demo_formato},
+                         daemon=True).start()
+        print(f'[OK] Modo demonstração: {a.demo} (formato {a.demo_formato})')
 
     srv, porta = abrir_servidor(a.porta_web)
     if not srv:

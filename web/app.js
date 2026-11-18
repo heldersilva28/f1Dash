@@ -113,15 +113,17 @@ const MODOS = [['me', 'Para ti', 'Para ti'], ['leader', 'Líder', 'Ao líder'], 
 function celulaTempo(c, eu, i) {
   if (modoTempos === 'leader') {
     if (c.pos === 1) return ['Líder', '#98A2B3'];
-    return c.voltas_atras ? [`+${c.voltas_atras} V`, '#98A2B3'] : ['+' + (c.lider_ms / 1000).toFixed(3), '#F2F4F7'];
+    if (c.voltas_atras) return [`+${c.voltas_atras} V`, '#98A2B3'];
+    return c.lider_ms == null ? ['—', '#98A2B3'] : ['+' + (c.lider_ms / 1000).toFixed(3), '#F2F4F7'];
   }
   if (modoTempos === 'interval') {
     if (c.pos === 1) return ['Líder', '#98A2B3'];
-    return ['+' + (c.frente_ms / 1000).toFixed(3), '#F2F4F7'];
+    return c.frente_ms == null ? ['—', '#98A2B3'] : ['+' + (c.frente_ms / 1000).toFixed(3), '#F2F4F7'];
   }
   if (c.eu) return ['—', '#98A2B3'];
   const dv = c.voltas_atras - eu.voltas_atras;
   if (dv) return [(dv > 0 ? '+' : '−') + Math.abs(dv) + ' V', '#98A2B3'];
+  if (c.lider_ms == null || eu.lider_ms == null) return ['—', '#98A2B3'];   // ainda sem dados (F1 2020)
   const s = (c.lider_ms - eu.lider_ms) / 1000;
   const perto = Math.abs(s) < 1;
   return [fmtRel(s), perto ? (s < 0 ? '#3DDC84' : '#FFB020') : '#F2F4F7'];
@@ -157,13 +159,14 @@ function renderCorrida(d) {
     const corT = dif == null ? '#98A2B3' : (frente ? (dif > 0 ? '#3DDC84' : '#FFB020') : (dif > 0 ? '#FFB020' : '#3DDC84'));
     let ajuda = '';
     const aj = eu.ajuda;
-    if (frente) ajuda = aj && aj.disp ? `${nomeAjuda} disponível` : v.gap_s < 1 ? `A menos de 1 s · ${nomeAjuda} na próxima deteção` : `${nomeAjuda} a ${(v.gap_s - 1).toFixed(3)} s`;
+    if (frente) ajuda = aj && aj.disp ? `${nomeAjuda} disponível` : v.gap_s == null ? '' : v.gap_s < 1 ? `A menos de 1 s · ${nomeAjuda} na próxima deteção` : `${nomeAjuda} a ${(v.gap_s - 1).toFixed(3)} s`;
     else if (v.ajuda_disp) ajuda = `tem ${nomeAjuda} sobre ti`;
+    const gapTxt = v.gap_s == null ? '—' : v.gap_s.toFixed(3) + ' s';
     const voltas = v.voltas_atras ? ` · ${v.voltas_atras} V` : '';
     return `<div class="pd16-22 g2 p col">
       <span class="l">${frente ? 'Carro à frente' : 'Carro atrás'} · P${v.pos}</span>
       <span class="f20"><b class="f24">${esc(v.codigo)}</b> <span class="m">· ${TN[v.composto] || '—'} · ${v.idade} voltas${voltas}</span></span>
-      <span class="f56 fw7" style="line-height:1.05;color:${frente ? '#3DDC84' : '#FFB020'}">${v.gap_s.toFixed(3)} s</span>
+      <span class="f56 fw7" style="line-height:1.05;color:${frente ? '#3DDC84' : '#FFB020'}">${gapTxt}</span>
       <span class="f15 fw6" style="color:${corT}">${tend || '&nbsp;'}</span>
       <span class="f15 m">${ajuda || '&nbsp;'}</span></div>`;
   };
@@ -224,7 +227,7 @@ function renderCorrida(d) {
         <div class="pd14 ai-c jc-c p col" style="border-color:${eu.cor}">
           <span class="l">Posição</span><span class="f88 fw7 lh1" style="color:${eu.cor}">P${eu.pos}</span>
           <span class="f15 m">Partida P${eu.grelha || '—'} · <span class="fw6" style="color:${ganho >= 0 ? '#3DDC84' : '#FF4D4D'}">${ganho >= 0 ? '+' : '−'}${Math.abs(ganho)}</span></span>
-          <span class="f15 m">Ao líder <b class="c-claro">${eu.pos === 1 ? '—' : meu.voltas_atras ? `+${meu.voltas_atras} V` : '+' + (meu.lider_ms / 1000).toFixed(3)}</b></span>
+          <span class="f15 m">Ao líder <b class="c-claro">${eu.pos === 1 ? '—' : meu.voltas_atras ? `+${meu.voltas_atras} V` : meu.lider_ms == null ? '—' : '+' + (meu.lider_ms / 1000).toFixed(3)}</b></span>
         </div>
         ${cartao(cr.atras, false)}
       </div>
@@ -258,7 +261,7 @@ function renderCorrida(d) {
           <span class="f30 fw7" style="color:${eu.cor}">${s.box_ideal ? `V${s.box_ideal} – V${s.box_ultima || s.box_ideal}` : '—'}</span></div>
         <div class="g3 row" aria-hidden="true">${janela.join('')}</div>
         <div class="f13 row sb m"><span>V${volta} (agora)</span><span>V${total}</span></div>
-        ${s.chuva ? `<div class="f15 fw6 c-azul">Chuva ${s.chuva.chuva}% daqui a ${s.chuva.min} min — pensa nos intermédios</div>` : ''}
+        ${s.chuva ? `<div class="f15 fw6 c-azul">${s.chuva.chuva != null ? `Chuva ${s.chuva.chuva}%` : 'Chuva prevista'} daqui a ${s.chuva.min} min — pensa nos intermédios</div>` : ''}
         ${cartaoPlano(cr.plano)}
         <div class="cols2 g10 g">
           <div class="cx"><span class="f13 m">Se parares agora</span><span class="f21 fw7">${reent ? 'Sais em P' + reent.pos : '—'}</span><span class="f14 m">${reent && reent.atras_de ? 'atrás de ' + esc(reent.atras_de) : ''}</span></div>
@@ -549,7 +552,7 @@ function renderEspera(d) {
       <li><b>Telemetria UDP:</b> Ligada · <b>Modo de difusão:</b> Desligado.</li>
       <li><b>Endereço IP:</b> <code>127.0.0.1</code> se jogas neste PC, ou o IP deste PC se jogas na consola.</li>
       <li><b>Porta UDP:</b> <code>20777</code> · <b>Frequência:</b> 20 Hz ou mais.</li>
-      <li><b>Formato UDP:</b> <code>2026</code> com o 2026 Season Pack (ou <code>2025</code> com os carros de 2025).</li>
+      <li><b>Formato UDP:</b> <code>2026</code> com o 2026 Season Pack (ou <code>2025</code> com os carros de 2025; <code>2020</code> no F1 2020).</li>
       <li>Entra numa sessão — o ecrã muda sozinho para treinos, qualificação ou corrida.</li>
     </ol>
   </div>`;
@@ -618,13 +621,13 @@ function compactoCorrida(d) {
   const ganho = (eu.grelha || 0) - eu.pos;
   const vizinho = (v, frente) => v
     ? `<span class="f20"><b>${esc(v.codigo)}</b> <span class="m">· P${v.pos} · ${TN[v.composto] || '—'} ${v.idade}V</span></span>
-       <span class="k-grande" style="color:${frente ? '#3DDC84' : '#FFB020'}">${v.gap_s.toFixed(3)}<span class="f22"> s</span></span><span class="f15 fw6">${kTendencia(v, frente)}</span>`
+       <span class="k-grande" style="color:${frente ? '#3DDC84' : '#FFB020'}">${v.gap_s == null ? '—' : v.gap_s.toFixed(3)}<span class="f22"> s</span></span><span class="f15 fw6">${kTendencia(v, frente)}</span>`
     : `<span class="f20 m">${frente ? 'Ninguém à frente' : 'Ninguém atrás'}</span>`;
   const meuIdx = d.carros.findIndex((c) => c.eu);
   const meu = d.carros[meuIdx] || { lider_ms: 0, voltas_atras: 0 };
   const perto = d.carros.slice(Math.max(meuIdx - 3, 0), meuIdx + 4).map((c) => {
     const dv = c.voltas_atras - meu.voltas_atras;
-    const t = c.eu ? '—' : dv ? (dv > 0 ? '+' : '−') + Math.abs(dv) + ' V' : fmtRel((c.lider_ms - meu.lider_ms) / 1000);
+    const t = c.eu ? '—' : dv ? (dv > 0 ? '+' : '−') + Math.abs(dv) + ' V' : c.lider_ms == null || meu.lider_ms == null ? '—' : fmtRel((c.lider_ms - meu.lider_ms) / 1000);
     return `<div class="k-fila${c.eu ? ' eu' : ''}" style="${c.eu ? `background:${c.cor}33` : ''}"><span class="m fw7">${c.pos}</span><span class="barra-eq" style="background:${c.cor}"></span>${linhaPiloto(c)}<span class="tr">${t}</span>${pneu(c.composto)}</div>`;
   }).join('');
   const vida = eu.vida_restante_voltas != null ? `${eu.vida_fonte === 'do jogo' ? '' : '~'}${eu.vida_restante_voltas} voltas` : 'a calcular…';
@@ -643,7 +646,7 @@ function compactoCorrida(d) {
     ${kCartao('Estratégia', `${kLinha('Janela de box', s.box_ideal ? `V${s.box_ideal}–V${s.box_ultima || s.box_ideal}` : '—', eu.cor)}
       ${kLinha('Se parares agora', cr.reentrada ? 'P' + cr.reentrada.pos : '—')}
       ${cr.plano ? `<span class="f16 fw7">${esc(textoPlano(cr.plano))}</span>` : ''}
-      ${s.chuva ? `<span class="f15 fw6 c-azul">Chuva ${s.chuva.chuva}% daqui a ${s.chuva.min} min</span>` : ''}`)}
+      ${s.chuva ? `<span class="f15 fw6 c-azul">${s.chuva.chuva != null ? `Chuva ${s.chuva.chuva}%` : 'Chuva prevista'} daqui a ${s.chuva.min} min</span>` : ''}`)}
     ${kCartao('Energia', `${kLinha('Bateria ERS', (eu.ers_pct ?? '—') + '%', '#4DA3FF')}<div class="barra h12"><div style="width:${pct(eu.ers_pct)};background:#4DA3FF"></div></div>
       ${kLinha('Combustível', margem == null ? '—' : (margem >= 0 ? '+' : '') + margem.toFixed(2) + ' voltas', margem == null ? null : margem >= 0 ? '#3DDC84' : '#FF4D4D')}`)}
     ${kCartao('À tua volta', `<div class="col g4">${perto}</div>`)}

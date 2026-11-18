@@ -1,4 +1,5 @@
 """Estado da sessão: junta os pacotes recebidos e calcula tudo o que os ecrãs mostram."""
+import bisect
 import json
 import math
 import os
@@ -20,6 +21,10 @@ PISTAS = {
     26: 'GP dos Países Baixos · Zandvoort', 27: 'GP da Emília-Romanha · Imola', 29: 'GP da Arábia Saudita · Jeddah',
     30: 'GP de Miami · Miami', 31: 'GP de Las Vegas · Las Vegas', 32: 'GP do Qatar · Lusail',
     39: 'Silverstone (inverso)', 40: 'Red Bull Ring (inverso)', 41: 'Zandvoort (inverso)', 42: 'GP de Madrid · Madring',
+    # pistas que só existem no F1 2020
+    1: 'GP de França · Paul Ricard', 8: 'GP da Alemanha · Hockenheim', 18: 'GP da Rússia · Sochi',
+    21: 'GP do Bahrain · Sakhir (curto)', 22: 'GP da Grã-Bretanha · Silverstone (curto)', 23: 'GP dos EUA · Austin (curto)',
+    24: 'GP do Japão · Suzuka (curto)', 25: 'GP do Vietname · Hanói',
 }
 SESSOES = {
     0: 'Sessão', 1: 'Treinos livres 1', 2: 'Treinos livres 2', 3: 'Treinos livres 3', 4: 'Treinos curtos',
@@ -30,6 +35,9 @@ SESSOES = {
 METEO = {0: 'Limpo', 1: 'Pouco nublado', 2: 'Nublado', 3: 'Chuva fraca', 4: 'Chuva forte', 5: 'Tempestade'}
 COMPOSTOS = {16: 'S', 17: 'M', 18: 'H', 7: 'I', 8: 'W', 19: 'S', 20: 'S', 21: 'M', 22: 'H', 15: 'W'}
 # cores de recurso por equipa, se o jogo não enviar as cores da pintura
+# equipas do F1 2020 (o jogo não envia as cores da pintura)
+CORES_2020 = {0: '#00D2BE', 1: '#DC0000', 2: '#0600EF', 3: '#0082FA', 4: '#F596C8', 5: '#FFF500', 6: '#C8C8C8',
+              7: '#787878', 8: '#FF8700', 9: '#960000'}
 CORES_EQUIPA = {
     0: '#27F4D2', 1: '#E8002D', 2: '#3671C6', 3: '#64C4FF', 4: '#229971', 5: '#0093CC', 6: '#6692FF',
     7: '#B6BABD', 8: '#FF8000', 9: '#52E252',
@@ -41,6 +49,7 @@ VOLTAS_OFICIAIS = {
     0: 58, 2: 56, 3: 57, 4: 66, 5: 78, 6: 70, 7: 52, 9: 70, 10: 44, 11: 53, 12: 62, 13: 53, 14: 58,
     15: 56, 16: 71, 17: 71, 19: 71, 20: 51, 26: 72, 27: 63, 29: 50, 30: 57, 31: 50, 32: 57,
     39: 52, 40: 71, 41: 72,
+    1: 53, 8: 67, 18: 53, 25: 55,     # F1 2020
 }
 FICHEIRO_MEMORIA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'memoria.json')
 
@@ -262,6 +271,15 @@ class Sessao:
         self.fim_sessao = False          # evento SEND, ou o teu resultado final na corrida
         self.classificacao = None        # pacote de classificação final (fim da corrida)
         self.posicoes_voltas = {}        # volta -> posição de cada carro no início dessa volta (pacote do jogo)
+        # o que o F1 2020 não envia e o painel calcula com os dados que recebe
+        self.historico_do_jogo = False   # True quando chegam pacotes de histórico (2025/2026)
+        self.hist_volta_atual = {}       # carro -> setores e validade da volta em curso (para construir o histórico)
+        self.marcas = {}                 # carro -> ([distância total], [tempo de sessão]) para calcular diferenças
+        self.box_anterior = {}           # carro -> estado das boxes no último pacote (para contar paragens)
+        self.paragens_contadas = {}
+        self.speed_traps = {}            # carro -> velocidade máxima (eventos SPTP)
+        self.setores_vistos = {1: [], 2: []}   # distâncias onde o jogo mudou de setor
+        self.tempo_sessao = 0.0
         self.perda_box_guardada = None
         # mini-setores de todos os carros
         self.mini_atual = {}         # carro -> {idx: tempo acumulado}
@@ -317,6 +335,7 @@ class Sessao:
     def receber(self, cab, nome, c):
         with self.lock:
             self.ultimo_pacote = time.time()
+            self.tempo_sessao = cab.get('tempo', 0.0)
             self.formato = cab['formato']
             if cab['uid'] != self.uid:
                 self.reiniciar(cab['uid'])
@@ -344,9 +363,14 @@ class Sessao:
                 self.telem2 = c
             elif nome == 'estado':
                 self.estado = c
+            elif nome == 'estado_e_danos':      # F1 2020: o estado do carro traz também desgaste e danos
+                self.estado, self.danos = c
             elif nome == 'danos':
                 self.danos = c
             elif nome == 'historico':
+                if not self.historico_do_jogo:
+                    self.historico_do_jogo = True
+                    self.historico = {}         # o do jogo substitui o que o painel ia construindo
                 self.historico[c['carro']] = c
             elif nome == 'conjuntos':
                 carro, conj, montado = c
@@ -373,6 +397,8 @@ class Sessao:
             for c in cores:
                 if luminancia(c) > 0.04:
                     return cor_hex(c)
+            if self.formato == 2020:
+                return CORES_2020.get(p['equipa_id'], '#98A2B3')
             return CORES_EQUIPA.get(p['equipa_id'], '#98A2B3')
         return '#98A2B3'
 
@@ -392,8 +418,10 @@ class Sessao:
 
     def _limites_mini(self):
         L = self._comprimento()
-        s2 = (self.sessao or {}).get('setor2_inicio') or L / 3
-        s3 = (self.sessao or {}).get('setor3_inicio') or 2 * L / 3
+        vistos = getattr(self, 'setores_vistos', {1: [], 2: []})
+        aprendido = lambda k: sorted(vistos[k])[len(vistos[k]) // 2] if vistos[k] else None
+        s2 = (self.sessao or {}).get('setor2_inicio') or aprendido(1) or L / 3
+        s3 = (self.sessao or {}).get('setor3_inicio') or aprendido(2) or 2 * L / 3
         if not (0 < s2 < s3 < L):
             s2, s3 = L / 3, 2 * L / 3
         lim = []
@@ -536,6 +564,8 @@ class Sessao:
             self.bandeira_vermelha = False
         elif cod == 'SEND':
             self.fim_sessao = True
+        elif cod == 'SPTP' and 'velocidade' in ev:
+            self.speed_traps[ev['carro']] = max(self.speed_traps.get(ev['carro'], 0), ev['velocidade'])
         elif cod == 'CHQF':
             self._msg('Bandeira de xadrez', '#F2F4F7')
         elif cod == 'RCWN':
@@ -548,6 +578,8 @@ class Sessao:
     # ------------------------------------------------------------ voltas (60 Hz)
     def _voltas(self, voltas):
         anterior = self.voltas
+        if voltas and voltas[0]['paragens'] is None:
+            self._completar_2020(voltas)
         self.voltas = voltas
         lim = self._limites_mini()
         j = self.jogador
@@ -583,7 +615,108 @@ class Sessao:
                 for k, fim in enumerate(lim):
                     if d >= fim and k not in m:
                         m[k] = v['atual']
+        if not self.historico_do_jogo:
+            self._construir_historico(voltas)
+        self._aprender_setores(anterior, voltas)
         self._jogador_volta(anterior)
+
+    # ------------------------------------------------------------ o que o F1 2020 não envia
+    PASSO_MARCAS = 20     # metros entre marcas para calcular as diferenças
+
+    def _completar_2020(self, voltas):
+        """Paragens, speed trap e diferenças para o carro da frente e para o líder, calculados com o que o jogo
+        envia: o estado das boxes, os eventos SPTP e a hora da sessão a que cada carro passa em cada ponto da pista."""
+        t = self.tempo_sessao
+        L = self._comprimento()
+        for i, v in enumerate(voltas):
+            b0 = self.box_anterior.get(i, v['box_estado'])
+            if b0 == 0 and v['box_estado'] != 0 and self.sessao and 15 <= self.sessao['tipo'] <= 17:
+                self.paragens_contadas[i] = self.paragens_contadas.get(i, 0) + 1
+            self.box_anterior[i] = v['box_estado']
+            v['paragens'] = self.paragens_contadas.get(i, 0)
+            v['speed_trap'] = self.speed_traps.get(i, 0.0)
+            if v['resultado'] < 2:
+                continue
+            dists, tempos = self.marcas.setdefault(i, ([], []))
+            d = v['dist_total']
+            if dists and d < dists[-1] - 50:                      # flashback ou recomeço: recomeça as marcas
+                dists.clear(); tempos.clear()
+            if not dists or d - dists[-1] >= self.PASSO_MARCAS:
+                dists.append(d); tempos.append(t)
+                limite = int(1.5 * L / self.PASSO_MARCAS) + 20
+                if len(dists) > 2 * limite:                       # guarda só a última volta e meia
+                    del dists[:-limite]; del tempos[:-limite]
+        corrida = bool(self.sessao) and 15 <= self.sessao['tipo'] <= 17     # só na corrida as diferenças fazem sentido
+        ordem = sorted((i for i, v in enumerate(voltas) if v['resultado'] >= 2 and v['posicao']), key=lambda i: voltas[i]['posicao']) \
+            if corrida else []
+        lider = ordem[0] if ordem else None
+        for k, i in enumerate(ordem):
+            v = voltas[i]
+            v['para_lider'] = self._diferenca(lider, v['dist_total'], t) if k else 0
+            v['para_frente'] = self._diferenca(ordem[k - 1], v['dist_total'], t) if k else 0
+        if not corrida:
+            for v in voltas:
+                v['para_lider'] = v['para_frente'] = 0
+
+    def _diferenca(self, alvo, dist, agora):
+        """Há quanto tempo (ms) o carro `alvo` passou na distância `dist`."""
+        dists, tempos = self.marcas.get(alvo, ([], []))
+        if not dists or dist > dists[-1]:
+            return 0                      # está à frente do carro de referência (ultrapassagem a acontecer)
+        if dist < dists[0]:
+            return None                   # o painel ainda não viu o outro carro passar aqui: diferença desconhecida
+        k = bisect.bisect_left(dists, dist)
+        if k == 0:
+            t = tempos[0]
+        else:
+            d0, d1, t0, t1 = dists[k - 1], dists[k], tempos[k - 1], tempos[k]
+            t = t0 + (t1 - t0) * (dist - d0) / (d1 - d0) if d1 > d0 else t1
+        return max(0, int(round((agora - t) * 1000)))
+
+    def _construir_historico(self, voltas):
+        """Sem pacotes de histórico (F1 2020): constrói as voltas e os stints de cada carro com o que vê passar."""
+        for i, v in enumerate(voltas):
+            if v['resultado'] < 2 or not v['volta']:
+                continue
+            h = self.historico.setdefault(i, {'carro': i, 'voltas': [], 'stints': [], 'melhor_volta': 0, 'melhor_s': (0, 0, 0)})
+            st = self.hist_volta_atual.get(i)
+            visual = self.estado[i]['composto'] if self.estado and i < len(self.estado) else 0
+            if st is None or v['volta'] < st['volta']:            # início, ou flashback para a volta anterior
+                del h['voltas'][max(v['volta'] - 1, 0):]
+                st = self.hist_volta_atual[i] = {'volta': v['volta'], 's1': 0, 's2': 0, 'inv': False}
+            if v['volta'] > st['volta']:
+                n = st['volta']
+                if v['ultima']:
+                    while len(h['voltas']) < n - 1:
+                        h['voltas'].append({'tempo': 0, 's1': 0, 's2': 0, 's3': 0, 'valida': False})
+                    s1, s2 = st['s1'], st['s2']
+                    volta = {'tempo': v['ultima'], 's1': s1, 's2': s2, 's3': v['ultima'] - s1 - s2 if s1 and s2 else 0,
+                             'valida': not st['inv']}
+                    h['voltas'][n - 1:n] = [volta]
+                    validas = [(x['tempo'], k + 1) for k, x in enumerate(h['voltas']) if x['tempo'] and x['valida']]
+                    h['melhor_volta'] = min(validas)[1] if validas else 0
+                st = self.hist_volta_atual[i] = {'volta': v['volta'], 's1': 0, 's2': 0, 'inv': False}
+            st['s1'] = v['s1'] or st['s1']
+            st['s2'] = v['s2'] or st['s2']
+            st['inv'] = st['inv'] or bool(v['invalida'])
+            # stints: quando o composto muda, o anterior acabou na última volta completa
+            if visual:
+                if not h['stints']:
+                    h['stints'].append({'fim': 255, 'real': 0, 'visual': visual})
+                elif h['stints'][-1]['visual'] != visual:
+                    h['stints'][-1]['fim'] = max(v['volta'] - 1, 1)
+                    h['stints'].append({'fim': 255, 'real': 0, 'visual': visual})
+
+    def _aprender_setores(self, anterior, voltas):
+        """Sem os limites dos setores na sessão (F1 2020), aprende-os no sítio onde o jogo muda de setor."""
+        if (self.sessao or {}).get('setor2_inicio') or not anterior:
+            return
+        for i, v in enumerate(voltas):
+            if i < len(anterior) and anterior[i]['volta'] == v['volta'] and v['setor'] == anterior[i]['setor'] + 1 \
+                    and v['setor'] in (1, 2):
+                lista = self.setores_vistos[v['setor']]
+                if len(lista) < 15:
+                    lista.append(v['dist_volta'])
 
     def _fechar_mini(self, i):
         m = self.mini_atual.get(i)
@@ -707,10 +840,12 @@ class Sessao:
 
     def _melhor(self, i):
         h = self.historico.get(i)
-        if not h or not h['melhor_volta'] or h['melhor_volta'] > len(h['voltas']):
-            return None
-        t = h['voltas'][h['melhor_volta'] - 1]['tempo']
-        return t or None
+        t = None
+        if h and h['melhor_volta'] and h['melhor_volta'] <= len(h['voltas']):
+            t = h['voltas'][h['melhor_volta'] - 1]['tempo'] or None
+        if self.voltas and i < len(self.voltas) and self.voltas[i].get('melhor_ms'):
+            t = min(t, self.voltas[i]['melhor_ms']) if t else self.voltas[i]['melhor_ms']   # F1 2020 dá-a nas voltas
+        return t
 
     # ------------------------------------------------------------ fotografia para os ecrãs
     def fotografia(self):
@@ -753,7 +888,9 @@ class Sessao:
                 'duracao': s['duracao'], 'temp_ar': s['temp_ar'], 'temp_pista': s['temp_pista'],
                 'meteo': METEO.get(s['tempo_meteo'], ''), 'safety_car': s['safety_car'],
                 'previsao': self._previsao(), 'box_ideal': s['box_ideal'], 'box_ultima': s['box_ultima'],
-                'box_reentrada': s['box_reentrada'], 'bandeira_vermelha': self.bandeira_vermelha,
+                'box_reentrada': s['box_reentrada'],
+                'bandeira_vermelha': self.bandeira_vermelha or bool(self.estado and self.jogador < len(self.estado)
+                                                                    and self.estado[self.jogador]['bandeira'] == 4),
                 'proxima': self._proxima_sessao(), 'zona_amarela_m': self._amarela_a_frente(),
                 'setores_m': [round(x) for x in self._limites_mini()[self.N_MINI - 1::self.N_MINI]],
             },
@@ -860,7 +997,7 @@ class Sessao:
                                'pontos': x['pontos'], 'paragens': x['paragens'], 'dif': dif, 'grelha': x['grelha'],
                                'compostos': [COMPOSTOS.get(st['visual'], '?') for st in x['stints']],
                                'melhor_ms': x['melhor_ms'], 'volta_rapida': bool(melhores) and x['melhor_ms'] == melhores[0]})
-            if c['stints']:
+            if c['stints'] and all(st['fim'] for st in c['stints']):
                 # os stints da classificação final (com as voltas em que paraste) mandam sobre o histórico
                 fim_ant, novos = 0, []
                 for st in c['stints']:
@@ -1013,7 +1150,11 @@ class Sessao:
         """Primeira previsão desta sessão, nos próximos 30 min, com probabilidade de chuva de 40% ou mais."""
         s = self.sessao
         for p in sorted(s['previsao'], key=lambda p: p['minutos']):
-            if p['tipo'] == s['tipo'] and 0 < p['minutos'] <= 30 and p['chuva'] >= 40:
+            if p['chuva'] is None:          # F1 2020: só diz o tempo previsto
+                chove = p['tempo_meteo'] >= 3
+            else:
+                chove = p['chuva'] >= 40
+            if p['tipo'] == s['tipo'] and 0 < p['minutos'] <= 30 and chove:
                 return {'min': p['minutos'], 'chuva': p['chuva']}
         return None
 
@@ -1056,7 +1197,8 @@ class Sessao:
             alerta('chuva', 'perigo', 'Está a chover e tens pneus de seco')
         elif s['chuva'] and seco:
             c = s['chuva']
-            alerta('chuva', 'aviso', f"Chuva {c['chuva']}% daqui a {c['min']} min — prepara os intermédios")
+            quanto = f"Chuva {c['chuva']}%" if c['chuva'] is not None else 'Chuva prevista'
+            alerta('chuva', 'aviso', f"{quanto} daqui a {c['min']} min — prepara os intermédios")
         # carro
         dan = eu.get('danos') or {}
         asa = max(dan.get('asa_fe', 0), dan.get('asa_fd', 0))
@@ -1146,6 +1288,9 @@ class Sessao:
             eu['melhor_volta_num'] = h['melhor_volta']
             mv = hist[h['melhor_volta'] - 1]
             eu['melhor_setores'] = [mv['s1'], mv['s2'], mv['s3']]
+        ms = eu.get('melhor_setores')
+        if not (ms and all(ms)) and v.get('melhor_setores') and all(v['melhor_setores']):
+            eu['melhor_setores'] = v['melhor_setores']          # F1 2020: os setores da melhor volta vêm nas voltas
         # setores da última volta com cores (roxo = melhor da sessão, verde = melhor pessoal, amarelo = mais lento)
         eu['setores_ultima'] = self._setores_ultima(j)
         eu['ritmo'] = [x['tempo'] for x in hist if x['tempo']][-8:] if hist else []
@@ -1324,7 +1469,7 @@ class Sessao:
                 for k, t in enumerate((v['s1'], v['s2'], v['s3'])):
                     if t and (best[k] is None or t < best[k]):
                         best[k] = t
-        return best
+        return self._juntar_setores_do_jogo(best, range(len(self.voltas or [])))
 
     def _meus_melhores_setores(self, i):
         best = [None, None, None]
@@ -1334,6 +1479,16 @@ class Sessao:
             for k, t in enumerate((v['s1'], v['s2'], v['s3'])):
                 if t and (best[k] is None or t < best[k]):
                     best[k] = t
+        return self._juntar_setores_do_jogo(best, [i])
+
+    def _juntar_setores_do_jogo(self, best, carros):
+        """F1 2020: o jogo dá o melhor de cada setor de cada carro nos dados das voltas (mesmo das voltas que o
+        painel não viu); junta-os aos do histórico."""
+        for i in carros:
+            if self.voltas and i < len(self.voltas):
+                for k, t in enumerate(self.voltas[i].get('melhores_setores_carro') or []):
+                    if t and (best[k] is None or t < best[k]):
+                        best[k] = t
         return best
 
     def _delta_vivo(self, v):
@@ -1379,14 +1534,15 @@ class Sessao:
 
         def vizinho(k, frente):
             c = carros[k]
-            gap = (eu['frente_ms'] if frente else c['frente_ms']) / 1000
+            gap_ms = eu['frente_ms'] if frente else c['frente_ms']
+            gap = None if gap_ms is None else gap_ms / 1000      # None: ainda sem dados (F1 2020, logo ao abrir)
             r = self._ritmo(c['idx'])
             dif = None
             if r and meu_ritmo:
                 dif = (r - meu_ritmo) / 1000 if frente else (meu_ritmo - r) / 1000
             ajuda = self._ajuda(c['idx'])
             return {'codigo': c['codigo'], 'pos': c['pos'], 'composto': c['composto'], 'idade': c['idade'],
-                    'gap_s': round(gap, 3), 'ritmo_ms': r, 'diferenca_volta': round(dif, 2) if dif is not None else None,
+                    'gap_s': round(gap, 3) if gap is not None else None, 'ritmo_ms': r, 'diferenca_volta': round(dif, 2) if dif is not None else None,
                     'voltas_atras': c['voltas_atras'], 'ajuda_disp': bool(ajuda and ajuda['disp'])}
 
         if idx_eu > 0:

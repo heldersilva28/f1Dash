@@ -9,6 +9,7 @@ import struct
 import time
 from array import array
 
+from telemetria import f1_2020 as F20
 from telemetria import pacotes as P
 
 FMT = 2026
@@ -78,6 +79,8 @@ class Carro:
 class Simulador:
     def __init__(self, modo):
         self.modo = modo
+        self.formato = FMT          # 2026, ou 2020 para experimentar o painel no formato do F1 2020
+        self.traps_enviados = {}
         self.t = 0.0
         self.frame = 0
         self.carros = [Carro(i, *g) for i, g in enumerate(GRELHA)]
@@ -297,6 +300,8 @@ class Simulador:
 
     # ---------------------------------------------------------------- pacotes
     def pacotes(self):
+        if self.formato == 2020:
+            return self._pacotes_2020()
         t, f = self.t, self.frame
         out = []
         ordem = self._ordem()
@@ -508,6 +513,119 @@ class Simulador:
             self.passo(dt)
 
 
+# ---------------------------------------------------------------- formato do F1 2020
+SESSAO_PARA_2020 = {v: k for k, v in F20.SESSOES.items()}
+EQUIPA_PARA_2020 = {476: 0, 477: 1, 478: 2, 479: 3, 480: 4, 481: 5, 482: 6, 483: 7, 484: 8, 485: 9, 486: 41}
+
+
+def _pacotes_2020(self):
+    """Os mesmos dados da simulação, nos pacotes do F1 2020: cabeçalho de 24 bytes, tempos em segundos, 22 carros,
+    sem histórico, danos, conjuntos de pneus nem diferenças entre carros (o painel calcula-as)."""
+    t, f = self.t, self.frame
+    cab20 = lambda pid: F20.CABECALHO.pack(2020, 1, 18, 1, pid, UID, t, f, JOGADOR, 255)
+    carros = self.carros[:F20.N]
+    ordem = self._ordem()
+    pos = {c.i: k + 1 for k, c in enumerate(ordem)}
+    out = []
+    # voltas
+    b = bytearray(cab20(2))
+    for c in carros:
+        if not c.ativo:
+            b += F20.VOLTA.pack(*([0.0] * 2), 0, 0, 0.0, *([0] * 10), 0.0, 0.0, 0.0, *([0] * 9))
+            continue
+        validas = [h for h in c.historico if h[4]]
+        mv = min(validas) if validas else None
+        melhor = mv[0] if mv else 0
+        ms = [min(h[k] for h in validas) if validas else 0 for k in (1, 2, 3)]       # melhor de cada setor deste carro
+        b += F20.VOLTA.pack(c.ultima / 1000, c.t_volta / 1000, c.s1, c.s2, melhor / 1000,
+                            c.historico.index(mv) + 1 if mv else 0,
+                            *(mv[1:4] if mv else (0, 0, 0)), ms[0], 0, ms[1], 0, ms[2], 0,
+                            float(c.dist_volta if c.volta >= 1 else c.dist_total), float(c.dist_total), 0.0,
+                            pos[c.i], max(c.volta, 1), 2 if self.t < c.box_ate else 0,
+                            0 if c.dist_volta < S2 else 1 if c.dist_volta < S3 else 2,
+                            int(c.invalida), c.penal, c.grelha, c.estado_piloto, 3 if c.terminou else 2)
+    out.append(bytes(b))
+    # telemetria e estado do carro (com desgaste e danos, como no F1 2020)
+    osc = math.sin(self.t / 3)
+    tb, eb = bytearray(cab20(6)), bytearray(cab20(7))
+    for c in carros:
+        eu = c.i == JOGADOR
+        vel = int(self._velocidade(c) * 3.6 * (1 + 0.15 * osc)) if c.ativo else 0
+        mudanca = max(1, min(8, vel // 40 + 1)) if c.ativo else 0
+        rpm = int(10200 + 1700 * (0.5 + 0.5 * osc)) if c.ativo else 0
+        luzes = max(0, min(100, int((rpm - 9500) / 3000 * 100)))
+        sup = [int(92 + 2 * osc), int(94 + 2 * osc), int(96 + 3 * osc), int(104 + 3 * osc)] if eu else [90] * 4
+        inner = [97, 99, 101, 108] if eu else [95] * 4
+        trav = [int(540 + 80 * osc), int(551 + 80 * osc), int(612 + 120 * osc), int(655 + 120 * osc)]
+        tb += F20.TELEMETRIA.pack(vel, 0.8, 0.0, 0.0, 0, mudanca, rpm, 0, luzes, *trav, *sup, *inner, 112,
+                                  23.0, 23.0, 21.0, 21.0, 0, 0, 0, 0)
+        comb = self.combustivel if eu else 30.0
+        voltas_rest = VOLTAS_CORRIDA - max(c.volta, 1) + 1
+        margem = comb / 1.58 - voltas_rest if self.modo == 'corrida' else comb / 1.58
+        desg = [int(round(x)) for x in self.desgaste] if eu else [10] * 4
+        eb += F20.ESTADO.pack(0, 0, 1, 56, 0, float(comb), 110.0, float(margem), 13000, 4000, 8, 0, 0, *desg,
+                              {16: 17, 17: 18, 18: 19}.get(c.composto, 18), c.composto, c.idade, 0, 0, 0, 0,
+                              0, 8 if eu else 0, 0, 0, 2 if eu else 0, 0, 1,
+                              2.48e6 + 3e5 * osc, 1 if self.modo == 'corrida' else 2, 1.6e6, 0.0, 1.9e6)
+    tb += struct.pack('<IBBb', 0, 0, 255, 0)
+    out += [bytes(tb), bytes(eb)]
+    # sessão (2x por segundo, como o jogo)
+    if self.frame % 30 == 0:
+        sb = bytearray(cab20(1))
+        resta = max(0, int(self.duracao - self.t)) if self.modo != 'corrida' else 5400
+        tipo = SESSAO_PARA_2020.get(self.tipo, 0)
+        sb += F20.SESSAO_A.pack(0, 27, 18, VOLTAS_CORRIDA, int(L), tipo, PISTA_ID, 0, resta, self.duracao, 80, 0, 0, 0, 0, 3)
+        for k in range(21):
+            sb += F20.ZONA.pack(k / 3 if k < 3 else 0.0, 1 if k < 3 else 0)
+        sb += F20.SESSAO_B.pack(0, 0, 3)
+        prev = [(0, 0), (10, 1), (20, 3)]
+        for k in range(20):
+            sb += F20.PREVISAO.pack(tipo, prev[k][0], prev[k][1], 27, 18) if k < 3 else F20.PREVISAO.pack(0, 0, 0, 0, 0)
+        out.append(bytes(sb))
+    # participantes (de 5 em 5 segundos no jogo; aqui mais vezes para a demo arrancar depressa)
+    if self.frame % 60 == 0:
+        pb = bytearray(cab20(4)) + bytes([sum(1 for c in carros if c.ativo)])
+        for c in carros:
+            pb += F20.PARTICIPANTE.pack(0 if c.i == JOGADOR else 1, c.i, EQUIPA_PARA_2020.get(c.equipa, 41), c.i + 1, 0,
+                                        c.nome.encode('utf-8'), 1)
+        out.append(bytes(pb))
+    # speed trap: no F1 2020 vem em eventos
+    for c in carros:
+        if c.ativo and c.speed_trap > self.traps_enviados.get(c.i, 0) + 0.5:
+            self.traps_enviados[c.i] = c.speed_trap
+            out.append(cab20(3) + b'SPTP' + struct.pack('<Bf', c.i, c.speed_trap).ljust(7, b'\x00'))
+    # classificação final (no fim da corrida)
+    if self.modo == 'corrida' and all(c.terminou for c in self.carros if c.ativo) and self.fim_enviado < 5 \
+            and self.frame % 20 == 0:
+        cb = bytearray(cab20(8)) + bytes([len(ordem)])
+        for c in carros:
+            if not c.ativo:
+                cb += F20.CLASSIFICACAO.pack(0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, *([0] * 16))
+                continue
+            p = ordem.index(c) + 1
+            stints = [comp for _, comp in c.stints] + [c.composto]
+            melhor = min((h[0] for h in c.historico if h[4]), default=0)
+            completa = lambda xs: (xs + [0] * 8)[:8]
+            cb += F20.CLASSIFICACAO.pack(p, c.volta, c.grelha, self.PONTOS[p - 1] if p <= 10 else 0, c.paragens, 3,
+                                         melhor / 1000, float(c.t_fim or self.t), c.penal, 1 if c.penal else 0,
+                                         len(stints), *completa([{16: 17, 17: 18, 18: 19}.get(x, 18) for x in stints]),
+                                         *completa(stints))
+        out.append(bytes(cb))
+        if not self.fim_enviado:
+            self.eventos.append(b'SEND')
+        self.fim_enviado += 1
+    if self.modo != 'corrida' and self.t >= self.duracao and not self.fim_enviado:
+        self.eventos.append(b'SEND')
+        self.fim_enviado = 1
+    for e in self.eventos:                      # mesmo evento, com os 7 bytes de dados do formato 2020
+        out.append(cab20(3) + e[:4] + e[4:11].ljust(7, b'\x00'))
+    self.eventos = []
+    return out
+
+
+Simulador._pacotes_2020 = _pacotes_2020
+
+
 def criar(modo):
     sim = Simulador(modo)
     if modo == 'corrida':
@@ -521,9 +639,10 @@ def criar(modo):
     return sim
 
 
-def correr(modo, porta=20777, hz=60):
+def correr(modo, porta=20777, hz=60, formato=FMT):
     """Envia os pacotes a 60 Hz, como o jogo com a frequência de envio UDP no máximo."""
     sim = criar(modo)
+    sim.formato = formato
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dt = 1 / hz
     proximo = time.time()

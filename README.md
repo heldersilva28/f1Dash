@@ -4,13 +4,14 @@
 
 ### O teu engenheiro de corrida no segundo monitor
 
-Painel de telemetria em tempo real para o **EA SPORTS F1 25** e o **2026 Season Pack**.<br>
+Painel de telemetria em tempo real para o **EA SPORTS F1 25** e o **2026 Season Pack** (também funciona com o **F1 2020**).<br>
 Um ecrã próprio para **corrida**, **qualificação** e **treinos livres**, que muda sozinho conforme a sessão.
 
 <br>
 
 ![EA SPORTS F1 25](https://img.shields.io/badge/EA_SPORTS-F1_25-E10600?style=for-the-badge&logo=ea&logoColor=white)
 ![Season Pack 2026](https://img.shields.io/badge/2026-Season_Pack-FF8000?style=for-the-badge)
+![F1 2020](https://img.shields.io/badge/também-F1_2020-6B7684?style=for-the-badge)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Zero dependências](https://img.shields.io/badge/dependências-zero-2EA043?style=for-the-badge)
 ![Grátis](https://img.shields.io/badge/preço-grátis-8B5CF6?style=for-the-badge)
@@ -297,11 +298,34 @@ No F1 25: **Definições → Definições de telemetria**
 | Endereço IP UDP | `127.0.0.1` se jogas no mesmo PC |
 | Porta UDP | `20777` |
 | Frequência de envio UDP | 20 Hz ou mais (**60 Hz** é o ideal: o conta-rotações e o delta atualizam a esse ritmo) |
-| Formato UDP | **2026** com o 2026 Season Pack, **2025** com os carros de 2025 |
+| Formato UDP | **2026** com o 2026 Season Pack, **2025** com os carros de 2025, **2020** no F1 2020 |
 | A tua telemetria | Pública ou restrita: os dados do teu carro chegam sempre |
 
 > [!IMPORTANT]
 > Se já jogavas F1 25 antes do Season Pack, o formato pode ter ficado em **2025**. Muda-o à mão para **2026**.
+
+<details>
+<summary><b>🕹️ No F1 2020</b></summary>
+
+<br>
+
+Em **Game Options → Settings → Telemetry Settings** (ou **Opções → Definições → Telemetria**): *UDP Telemetry* ligada, *UDP Broadcast Mode* desligado, *UDP IP Address* `127.0.0.1` (ou o IP do PC), *UDP Port* `20777`, *UDP Send Rate* **60 Hz** e *UDP Format* **2020**. O painel reconhece o formato sozinho.
+
+O F1 2020 envia menos dados do que o F1 25, e o painel compensa com o que recebe:
+
+| O F1 2020 não envia | O que o painel faz |
+|---|---|
+| Diferenças para o carro da frente e para o líder | Calcula-as pela hora a que cada carro passa em cada ponto da pista. Nos primeiros segundos depois de abrires o painel aparece "—" até haver dados. |
+| Número de paragens | Conta as entradas nas boxes, a partir do momento em que abres o painel. |
+| Histórico de voltas | Junta as voltas que vê passar; a melhor volta e os setores de referência vêm logo do jogo. |
+| Limites dos setores | Aprende-os no sítio onde o jogo muda de setor. |
+| Speed trap | Vem nos eventos do jogo. |
+| Conjuntos de pneus, janela de box, duração da corrida, estrutura do fim de semana | Sem esses dados não há plano de corrida; a vida dos pneus vem do desgaste medido. |
+| Probabilidade de chuva | O alerta usa o tempo previsto ("Chuva prevista daqui a 20 min"). |
+
+Para experimentar sem o jogo: `python f1dash.py --demo corrida --demo-formato 2020`.
+
+</details>
 
 **🎮 PS5 / Xbox:** em *Endereço IP UDP* põe o IP do PC onde corre o painel. Para o saberes, abre a Linha de Comandos no PC, escreve `ipconfig` e usa o "Endereço IPv4".
 
@@ -340,6 +364,7 @@ No F1 25: **Definições → Definições de telemetria**
 | `--porta-udp` | `20777` | Porta onde o jogo envia a telemetria |
 | `--porta-web` | `8080` | Porta do painel no browser |
 | `--demo` | | Simula `corrida`, `qualificacao` ou `treinos` sem o jogo |
+| `--demo-formato` | `2026` | Formato dos pacotes da simulação: `2026` (F1 25) ou `2020` (F1 2020) |
 | `--sem-browser` | | Não abre o browser ao arrancar |
 
 ```bash
@@ -377,6 +402,7 @@ f1Dash/
 ├── Iniciar-demo.bat     # atalho para o modo demo
 ├── telemetria/
 │   ├── pacotes.py       # leitura dos pacotes UDP (formatos 2025 e 2026)
+│   ├── f1_2020.py       # leitura dos pacotes do F1 2020, convertidos para a mesma forma
 │   └── estado.py        # estado da sessão, cálculos e estratégia
 ├── web/
 │   ├── index.html
@@ -387,6 +413,7 @@ f1Dash/
 ├── testes/              # python -m unittest discover -s testes
 │   ├── teste_pacotes.py # leitura dos pacotes 2025 e 2026
 │   ├── teste_estado.py  # flashbacks, espectador, alertas, memória…
+│   ├── teste_2020.py    # formato do F1 2020
 │   └── teste_servidor.py
 ├── .github/workflows/   # testes automáticos em cada push (Windows e Linux)
 └── imagens/             # capturas usadas neste README
