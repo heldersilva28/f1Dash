@@ -236,6 +236,7 @@ class Sessao:
         self.reiniciar(None)
         self.ultimo_pacote = 0.0
         self.formato = None
+        self.versao_rapida = 0      # sobe a cada pacote de voltas/telemetria: há valores rápidos novos
 
     # ------------------------------------------------------------ gestão
     def reiniciar(self, uid):
@@ -329,6 +330,8 @@ class Sessao:
             if j != self.jogador:
                 self._reiniciar_jogador()
                 self.jogador = j
+            if nome in ('voltas', 'telemetria'):
+                self.versao_rapida += 1
             if nome == 'voltas':
                 self._voltas(c)
             elif nome == 'evento':
@@ -713,6 +716,22 @@ class Sessao:
     def fotografia(self):
         with self.lock:
             return self._fotografia()
+
+    def rapido(self):
+        """Os valores que mudam a cada pacote (canal rápido, até 60 por segundo): mudança, velocidade, rotações,
+        luzes, tempo da volta atual, delta e previsão. Pequeno de propósito: o resto vai na fotografia (5 por segundo)."""
+        with self.lock:
+            j = self.jogador
+            if not self.voltas or not 0 <= j < len(self.voltas):
+                return None
+            v = self.voltas[j]
+            delta = self._delta_vivo(v)
+            r = {'t': v['atual'], 'd': delta, 's': v['setor'], 'dv': round(v['dist_volta']),
+                 'p': self.tempo_melhor_traco + delta if delta is not None and self.tempo_melhor_traco else None}
+            tel = self.telem[j] if self.telem and j < len(self.telem) else None
+            if tel:
+                r.update({'g': tel['mudanca'], 'v': tel['velocidade'], 'r': tel['rpm'], 'l': tel['luzes_rpm']})
+            return r
 
     def _fotografia(self):
         agora = time.time()

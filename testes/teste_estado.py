@@ -631,5 +631,29 @@ class TesteVolante(ComMemoriaTemporaria):
         self.assertGreaterEqual(eu['dist_volta'], 0)
 
 
+# ---------------------------------------------------------------- canal rápido
+class TesteCanalRapido(ComMemoriaTemporaria):
+    def test_valores_rapidos(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=60)
+        r = s.rapido()
+        self.assertEqual(set(r), {'t', 'd', 'p', 's', 'dv', 'g', 'v', 'r', 'l'})
+        f = s.fotografia()
+        self.assertEqual(r['g'], f['eu']['mudanca'])
+        self.assertEqual(r['v'], f['eu']['velocidade'])
+        self.assertEqual(r['t'], f['eu']['atual_ms'])
+        self.assertEqual(r['d'], f['eu']['delta_ms'])
+
+    def test_versao_sobe_com_voltas_e_telemetria(self):
+        s = alimentar_demo(E.Sessao(guardar=False), 'corrida', passos=5)
+        antes = s.versao_rapida
+        s.receber(cab(s.uid, demo.JOGADOR), 'evento', {'codigo': 'SSTA'})
+        self.assertEqual(s.versao_rapida, antes)                 # um evento não traz valores rápidos
+        s.receber(cab(s.uid, demo.JOGADOR), 'voltas', s.voltas)
+        self.assertEqual(s.versao_rapida, antes + 1)
+
+    def test_sem_carro_nao_ha_valores(self):
+        self.assertIsNone(E.Sessao(guardar=False).rapido())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -50,16 +50,27 @@ const VL_ACESO = ['#F4FFF9', '#B8FFE0', '#7DFFC4', '#4DFFA8', '#2BFF8C', '#19F57
   '#C34BFF', '#B05CFF', '#9D63FF', '#8A5CFF', '#7A55F0'];   // zona de troca de mudança: roxo, como a linha do design
 const VL_APAGADO = ['#2B3038', '#292E35', '#272C33', '#252A30', '#23282E'];
 
+const vlAcesas = (pct) => Math.round(Math.max(0, Math.min(100, pct || 0)) / 100 * VL_SEGMENTOS.length);
 function vlContaRotacoes(eu) {
-  // as luzes acendem pela percentagem que o jogo envia (as mesmas do volante do carro)
-  const acesas = Math.round(Math.max(0, Math.min(100, eu.luzes_rpm || 0)) / 100 * VL_SEGMENTOS.length);
-  const acesos = [], apagados = [];
-  VL_SEGMENTOS.forEach((d, k) => {
-    if (k < acesas) acesos.push(`<path d="${d}" fill="${VL_ACESO[k]}"></path>`);
-    else apagados.push(`<path d="${d}" fill="${VL_APAGADO[Math.max(0, k - 17)] || VL_APAGADO[0]}" stroke="#343B44" stroke-width="1"></path>`);
-  });
-  return `<g>${apagados.join('')}</g><g filter="url(#gGlow)">${acesos.join('')}</g>`;
+  // as luzes acendem pela percentagem que o jogo envia (as mesmas do volante do carro); o canal rápido liga e
+  // desliga cada uma sem redesenhar o conta-rotações
+  const acesas = vlAcesas(eu.luzes_rpm);
+  const apagados = VL_SEGMENTOS.map((d, k) => `<path d="${d}" fill="${VL_APAGADO[Math.max(0, k - 17)] || VL_APAGADO[0]}" stroke="#343B44" stroke-width="1"></path>`);
+  const acesos = VL_SEGMENTOS.map((d, k) => `<path d="${d}" fill="${VL_ACESO[k]}" visibility="${k < acesas ? 'visible' : 'hidden'}"></path>`);
+  return `<g>${apagados.join('')}</g><g filter="url(#gGlow)" data-r="luzes">${acesos.join('')}</g>`;
 }
+
+// cores da caixa do delta: verde a ganhar tempo, vermelho a perder, cinzento sem referência
+function vlCoresDelta(delta) {
+  if (delta == null) return { de: '#11161C', ate: '#0B0F13', borda: '#26303B', rotulo: '#D5DCE4', valor: '#98A2B3', sombra: 'none', trilho: '#163322' };
+  return delta <= 0
+    ? { de: '#0E2617', ate: '#0A1A10', borda: '#3DDC84', rotulo: '#CFF5DD', valor: '#3DDC84', sombra: '0 0 22px #3DDC8455', trilho: '#163322' }
+    : { de: '#2A1215', ate: '#1A0B0D', borda: '#FF4D4D', rotulo: '#FFD6D6', valor: '#FF4D4D', sombra: '0 0 22px #FF4D4D55', trilho: '#3A1A1D' };
+}
+const vlBarraDelta = (delta) => {
+  const larg = delta == null ? 0 : Math.min(Math.abs(delta) / 500, 1) * 50;      // a barra vai até ±0.5 s
+  return { left: delta != null && delta <= 0 ? 50 - larg : 50, width: larg };
+};
 
 // ---- carro visto de cima (o mesmo desenho do design, com os anéis da vida de cada pneu)
 function vlCarro(eu) {
@@ -278,9 +289,8 @@ function renderVolante(d) {
   const delta = eu.delta_ms;
   const temDelta = delta != null;
   const bom = temDelta && delta <= 0;
-  const caixaDelta = !temDelta ? ['#11161C', '#0B0F13', '#26303B', '#D5DCE4', '#98A2B3', 'none']
-    : bom ? ['#0E2617', '#0A1A10', '#3DDC84', '#CFF5DD', '#3DDC84', '0 0 22px #3DDC8455'] : ['#2A1215', '#1A0B0D', '#FF4D4D', '#FFD6D6', '#FF4D4D', '0 0 22px #FF4D4D55'];
-  const larg = temDelta ? Math.min(Math.abs(delta) / 500, 1) * 50 : 0;     // a barra vai até ±0.5 s
+  const cd = vlCoresDelta(delta);
+  const barra = vlBarraDelta(delta);
   const aero = eu.aero || {};
   const regras26 = aero.regras_2026 !== undefined ? aero.regras_2026 !== 0 : !!eu.aero;
   const aj = eu.ajuda || null;
@@ -360,29 +370,29 @@ function renderVolante(d) {
         <path d="M422.6 147.3 A219 219 0 0 1 365.5 390.7" fill="none" stroke="#8A5CFF" stroke-width="2" stroke-opacity="0.85" filter="url(#lGlow)"></path>
         ${vlContaRotacoes(eu)}
       </svg>
-      <span style="position: absolute; left: 0; right: 0; top: 116px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 180px; font-weight: 700; line-height: 136px">${vlMudanca(eu.mudanca)}</span>
-      <span style="position: absolute; left: 0; right: 0; top: 268px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 96px; font-weight: 700; line-height: 80px; letter-spacing: -.02em" aria-label="${eu.velocidade ?? 0} km/h">${eu.velocidade ?? '—'}</span>
-      <span style="position: absolute; left: 0; right: 0; top: 372px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 28px; font-weight: 500; color: #B8C0CC">${vlRpm(eu.rpm)} rpm</span>
+      <span data-r="mudanca" style="position: absolute; left: 0; right: 0; top: 116px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 180px; font-weight: 700; line-height: 136px">${vlMudanca(eu.mudanca)}</span>
+      <span data-r="vel" style="position: absolute; left: 0; right: 0; top: 268px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 96px; font-weight: 700; line-height: 80px; letter-spacing: -.02em" aria-label="velocidade em km/h">${eu.velocidade ?? '—'}</span>
+      <span data-r="rpm" style="position: absolute; left: 0; right: 0; top: 372px; text-align: center; font-family: 'Poppins', sans-serif; font-size: 28px; font-weight: 500; color: #B8C0CC">${vlRpm(eu.rpm)} rpm</span>
       <div style="position: absolute; left: 0; right: 0; bottom: 34px; display: flex; justify-content: center">
         <div style="display: flex; align-items: baseline; gap: 12px; padding: 8px 18px; border-radius: 12px; background: #0B1015; border: 1px solid #26303B">
           <span class="l" style="color: #98A2B3">Volta atual</span>
-          <span style="font-size: 38px; font-weight: 700; line-height: 1">${fmtV(eu.atual_ms)}</span>
-          ${temDelta ? `<span style="font-size: 18px; font-weight: 700; color: ${bom ? '#3DDC84' : '#FF4D4D'}">${fmtD(delta)}</span>` : ''}
+          <span data-r="atual" style="font-size: 38px; font-weight: 700; line-height: 1">${fmtV(eu.atual_ms)}</span>
+          <span data-r="delta-pequeno" style="font-size: 18px; font-weight: 700; color: ${bom ? '#3DDC84' : '#FF4D4D'}">${temDelta ? fmtD(delta) : ''}</span>
         </div>
       </div>
     </section>
 
     <div style="display: flex; flex-direction: column; gap: 10px; min-height: 0">
-      <section class="p" style="padding: 12px 18px; display: flex; flex-direction: column; background: linear-gradient(180deg, ${caixaDelta[0]} 0%, ${caixaDelta[1]} 100%); border: 2px solid ${caixaDelta[2]}; box-shadow: ${caixaDelta[5]}">
-        <span class="l" style="color: ${caixaDelta[3]}">Delta · tua melhor volta</span>
+      <section class="p" data-r="delta-caixa" style="padding: 12px 18px; display: flex; flex-direction: column; background: linear-gradient(180deg, ${cd.de} 0%, ${cd.ate} 100%); border: 2px solid ${cd.borda}; box-shadow: ${cd.sombra}">
+        <span class="l" data-r="delta-rotulo" style="color: ${cd.rotulo}">Delta · tua melhor volta</span>
         ${temDelta
-    ? `<span style="font-size: 92px; font-weight: 700; line-height: 1; color: ${caixaDelta[4]}; text-align: center; text-shadow: 0 0 18px ${caixaDelta[4]}66">${fmtD(delta)}</span>`
-    : `<span style="height: 92px; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; color: ${caixaDelta[4]}; white-space: nowrap">${eu.melhor_ms ? 'À espera de uma volta' : 'Sem volta de referência'}</span>`}
-        <div style="height: 6px; background: ${bom || !temDelta ? '#163322' : '#3A1A1D'}; border-radius: 3px; position: relative; margin: 6px 0">
-          <span style="position: absolute; left: 50%; top: -5px; width: 3px; height: 16px; background: ${caixaDelta[4]}; border-radius: 2px"></span>
-          ${temDelta ? `<span style="position: absolute; ${bom ? `left: ${50 - larg}%` : 'left: 50%'}; width: ${larg}%; height: 100%; background: ${caixaDelta[4]}; border-radius: 3px"></span>` : ''}
+    ? `<span data-r="delta-grande" style="font-size: 92px; font-weight: 700; line-height: 1; color: ${cd.valor}; text-align: center; text-shadow: 0 0 18px ${cd.valor}66">${fmtD(delta)}</span>`
+    : `<span style="height: 92px; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; color: ${cd.valor}; white-space: nowrap">${eu.melhor_ms ? 'À espera de uma volta' : 'Sem volta de referência'}</span>`}
+        <div data-r="delta-trilho" style="height: 6px; background: ${cd.trilho}; border-radius: 3px; position: relative; margin: 6px 0">
+          <span data-r="delta-marca" style="position: absolute; left: 50%; top: -5px; width: 3px; height: 16px; background: ${cd.valor}; border-radius: 2px"></span>
+          <span data-r="delta-barra" style="position: absolute; left: ${barra.left}%; width: ${barra.width}%; height: 100%; background: ${cd.valor}; border-radius: 3px"></span>
         </div>
-        <span style="font-size: 20px; color: ${caixaDelta[3]}">Previsão <b style="color: #FFFFFF; margin-left: 10px">${fmtV(eu.previsao_ms)}</b></span>
+        <span data-r="previsao-rotulo" style="font-size: 20px; color: ${cd.rotulo}">Previsão <b data-r="previsao" style="color: #FFFFFF; margin-left: 10px">${fmtV(eu.previsao_ms)}</b></span>
       </section>
       ${vlVizinho(cr.frente, true)}
       ${vlVizinho(cr.atras, false)}

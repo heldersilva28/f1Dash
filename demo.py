@@ -521,7 +521,8 @@ def criar(modo):
     return sim
 
 
-def correr(modo, porta=20777, hz=20):
+def correr(modo, porta=20777, hz=60):
+    """Envia os pacotes a 60 Hz, como o jogo com a frequência de envio UDP no máximo."""
     sim = criar(modo)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dt = 1 / hz

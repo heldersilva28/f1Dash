@@ -96,5 +96,72 @@ class TesteServidor(unittest.TestCase):
             sessao.sessao = None
 
 
+class FonteRapida:
+    def __init__(self):
+        self.versao_rapida = 0
+        self.g = 1
+
+    def rapido(self):
+        return {'g': self.g, 'v': 100 + self.g}
+
+
+class TesteCanalRapido(unittest.TestCase):
+    def test_publica_uma_vez_por_pacote_de_telemetria(self):
+        fonte = FonteRapida()
+        r = f1dash.Rapido(fonte)
+        fonte.versao_rapida = 1
+        self.assertTrue(r.talvez_publicar('telemetria', agora=10.0))
+        fonte.versao_rapida = 2
+        self.assertFalse(r.talvez_publicar('voltas', agora=10.0001))     # o pacote de voltas do mesmo frame não repete
+        fonte.versao_rapida, fonte.g = 3, 2
+        self.assertTrue(r.talvez_publicar('telemetria', agora=10.0167))  # frame seguinte a 60 Hz
+        fonte.versao_rapida = 4
+        self.assertFalse(r.talvez_publicar('telemetria', agora=10.0170))  # rajada: menos de 1/120 s
+        self.assertTrue(r.talvez_publicar('telemetria', agora=10.0500))   # o valor que ficou por enviar sai agora
+        self.assertFalse(r.talvez_publicar('telemetria', agora=10.0700))  # sem dados novos: não repete
+        versao, corpo = r.esperar(-1)
+        self.assertEqual(json.loads(corpo), {'g': 2, 'v': 102})
+
+    def test_sem_telemetria_usa_os_pacotes_de_voltas(self):
+        fonte = FonteRapida()
+        r = f1dash.Rapido(fonte)
+        fonte.versao_rapida = 1
+        self.assertTrue(r.talvez_publicar('voltas', agora=5.0))
+
+    def test_ritmo_do_jogo_a_60_hz(self):
+        fonte = FonteRapida()
+        r = f1dash.Rapido(fonte)
+        publicados, t = 0, 0.0
+        for frame in range(600):                       # 10 s a 60 Hz, com variação de ±3 ms na chegada
+            t = frame / 60 + (0.003 if frame % 2 else -0.003)
+            for nome in ('voltas', 'telemetria'):
+                fonte.versao_rapida += 1
+                publicados += r.talvez_publicar(nome, agora=t)
+        self.assertEqual(publicados, 600)
+
+    def test_canal_rapido_pelo_http(self):
+        import http.client
+        fonte = FonteRapida()
+        antigo, f1dash.rapido = f1dash.rapido, f1dash.Rapido(fonte)
+        srv, _ = f1dash.abrir_servidor(0)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            ligacao = http.client.HTTPConnection('127.0.0.1', srv.server_address[1], timeout=5)
+            ligacao.request('GET', '/rapido')
+            resposta = ligacao.getresponse()
+            self.assertEqual(resposta.getheader('Content-Type'), 'text/event-stream')
+            fonte.versao_rapida, fonte.g = 1, 6
+            f1dash.rapido.talvez_publicar('telemetria', agora=100.0)
+            linha = b''
+            while not linha.startswith(b'data:'):
+                linha = resposta.fp.readline()
+            self.assertEqual(json.loads(linha[5:]), {'g': 6, 'v': 106})
+            ligacao.close()
+        finally:
+            f1dash.rapido = antigo
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

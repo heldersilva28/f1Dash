@@ -76,6 +76,57 @@ class Difusor:
 difusor = Difusor()
 
 
+class Rapido:
+    """Canal rápido: os poucos valores que mudam a cada pacote (mudança, velocidade, rotações, luzes, delta), enviados
+    logo que chegam do jogo, até 60 vezes por segundo. Publica a partir do fio que recebe os pacotes UDP, por isso
+    não depende da precisão dos temporizadores do sistema."""
+    MINIMO = 1 / 120       # proteção contra rajadas; o ritmo real é o do jogo (um envio por pacote de telemetria)
+    SEM_TELEMETRIA = 0.25  # se a telemetria deixar de chegar, publica com os pacotes de voltas
+
+    def __init__(self, fonte=None):
+        self.fonte = fonte
+        self.cond = threading.Condition()
+        self.versao = 0
+        self.corpo = None            # nada até chegar o primeiro pacote (um vazio apagaria o ecrã por um instante)
+        self.ultimo = -1e9
+        self.visto = -1
+        self.ultima_telemetria = -1e9
+
+    def talvez_publicar(self, nome='telemetria', agora=None):
+        """Chamado a cada pacote de voltas ou de telemetria. Publica uma vez por frame do jogo: no pacote de
+        telemetria (mudança, velocidade, rotações, luzes), que chega no mesmo frame do pacote de voltas."""
+        fonte = self.fonte or sessao
+        agora = time.monotonic() if agora is None else agora
+        if nome == 'telemetria':
+            self.ultima_telemetria = agora
+        elif agora - self.ultima_telemetria < self.SEM_TELEMETRIA:
+            return False
+        if fonte.versao_rapida == self.visto or agora - self.ultimo < self.MINIMO:
+            return False
+        try:
+            dados = fonte.rapido()
+        except Exception:     # nunca deixa um valor estranho parar a receção dos pacotes
+            return False
+        self.visto = fonte.versao_rapida
+        if dados is None:
+            return False
+        self.ultimo = agora
+        corpo = json.dumps(dados, separators=(',', ':')).encode()
+        with self.cond:
+            self.corpo = corpo
+            self.versao += 1
+            self.cond.notify_all()
+        return True
+
+    def esperar(self, versao):
+        with self.cond:
+            self.cond.wait_for(lambda: self.versao != versao, timeout=2)
+            return self.versao, self.corpo
+
+
+rapido = Rapido()
+
+
 def ip_da_rede():
     """IP deste PC na rede local, para abrir o painel num tablet ou telemóvel. Não envia nada pela rede."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -125,6 +176,8 @@ def escutar_udp(porta):
             sessao.receber(*r)
         except Exception as e:  # um pacote estranho nunca deve parar o painel
             print('[aviso] pacote ignorado:', e)
+        if r[1] in ('voltas', 'telemetria'):
+            rapido.talvez_publicar(r[1])
 
 
 class Pedido(BaseHTTPRequestHandler):
@@ -133,7 +186,9 @@ class Pedido(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith('/stream'):
-            return self._stream()
+            return self._stream(difusor)
+        if self.path.startswith('/rapido'):
+            return self._stream(rapido)
         if self.path.startswith('/dados'):
             return self._enviar_json(difusor.corpo)
         caminho = self.path.split('?')[0]
@@ -177,7 +232,7 @@ class Pedido(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
-    def _stream(self):
+    def _stream(self, fonte):
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')
@@ -186,8 +241,12 @@ class Pedido(BaseHTTPRequestHandler):
         versao = -1
         try:
             while True:
-                versao, corpo = difusor.esperar(versao)
-                self.wfile.write(b'data: ' + corpo + b'\n\n')
+                nova, corpo = fonte.esperar(versao)
+                if nova == versao or corpo is None:
+                    self.wfile.write(b': ainda aqui\n\n')     # sem dados novos: só para saber se o ecrã ainda está ligado
+                else:
+                    self.wfile.write(b'data: ' + corpo + b'\n\n')
+                versao = nova
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass

@@ -229,8 +229,8 @@ function renderCorrida(d) {
         ${cartao(cr.atras, false)}
       </div>
       <div class="pd14-20 g12 p g" style="grid-template-columns:repeat(4,minmax(0,1fr)) repeat(3,minmax(0,.72fr));align-items:end">
-        <div class="col"><span class="l">Volta atual</span><span class="f30 fw7">${fmtV(eu.atual_ms)}</span>
-          <span class="f14 fw6" style="color:${eu.delta_ms == null ? '#98A2B3' : eu.delta_ms <= 0 ? '#3DDC84' : '#FF4D4D'}">${eu.delta_ms == null ? (eu.invalida ? 'Volta inválida' : '—') : fmtD(eu.delta_ms) + ' vs melhor'}</span></div>
+        <div class="col"><span class="l">Volta atual</span><span class="f30 fw7" data-r="atual">${fmtV(eu.atual_ms)}</span>
+          <span class="f14 fw6" data-r="delta-linha" style="color:${eu.delta_ms == null ? '#98A2B3' : eu.delta_ms <= 0 ? '#3DDC84' : '#FF4D4D'}">${eu.delta_ms == null ? (eu.invalida ? 'Volta inválida' : '—') : fmtD(eu.delta_ms) + ' vs melhor'}</span></div>
         <div class="col"><span class="l">Última</span><span class="f30 fw7">${fmtV(eu.ultima_ms)}</span><span class="f14 m">${eu.ultima_ms && eu.melhor_ms ? fmtD(eu.ultima_ms - eu.melhor_ms) + ' vs melhor' : '&nbsp;'}</span></div>
         <div class="col"><span class="l">Melhor</span><span class="f30 fw7 c-verde">${fmtV(eu.melhor_ms)}</span><span class="f14 m">${eu.melhor_volta_num ? 'Volta ' + eu.melhor_volta_num : '&nbsp;'}</span></div>
         <div class="col"><span class="l">Mais rápida</span><span class="f30 fw7 c-roxo">${vr ? fmtV(vr.ms) : '—'}</span><span class="f14 m">${vr ? esc(vr.codigo) + (vr.volta ? ' · volta ' + vr.volta : '') : '&nbsp;'}</span></div>
@@ -358,16 +358,16 @@ function renderQuali(d) {
       <div class="cresce mh0 pd22-28 g24 ai-c p g" style="grid-template-columns:minmax(0,1fr) 300px">
         <div class="g6 col">
           <span class="l">Delta ao teu melhor tempo${eu.referencia_origem && eu.referencia_origem !== s.nome ? ' · referência da ' + esc(eu.referencia_origem) : ''}</span>
-          ${delta == null ? `<span class="f44 fw7 c-dim" style="line-height:1.1">${eu.melhor_ms ? 'À espera da volta rápida' : 'Ainda sem volta de referência'}</span>` : `<span class="f150 fw7" style="line-height:.95;color:${deltaCor}">${fmtD(delta)}</span>`}
+          ${delta == null ? `<span class="f44 fw7 c-dim" style="line-height:1.1">${eu.melhor_ms ? 'À espera da volta rápida' : 'Ainda sem volta de referência'}</span>` : `<span class="f150 fw7" data-r="delta-quali" style="line-height:.95;color:${deltaCor}">${fmtD(delta)}</span>`}
           <div class="h10 bg-linha r5" style="position:relative;margin-top:6px">
             <span class="abs w2 h18 bg-dim" style="left:50%;top:-4px"></span>
-            <span class="abs r5" style="${delta != null && delta <= 0 ? 'right:50%' : 'left:50%'};width:${larg}%;height:100%;background:${deltaCor}"></span></div>
+            <span class="abs r5" data-r="delta-quali-barra" style="${delta != null && delta <= 0 ? 'right:50%' : 'left:50%'};width:${larg}%;height:100%;background:${deltaCor}"></span></div>
           <div class="f13 row sb m"><span>−1.0 s mais rápido</span><span>+1.0 s mais lento</span></div>
         </div>
         <div class="g12 col" style="border-left:1px solid #232B35;padding-left:24px">
-          <div class="col"><span class="l">Previsão de volta</span><span class="f44 fw7">${fmtV(eu.previsao_ms)}</span>
+          <div class="col"><span class="l">Previsão de volta</span><span class="f44 fw7" data-r="previsao">${fmtV(eu.previsao_ms)}</span>
             <span class="f17 fw6" style="color:${passa === 'abaixo do corte' ? '#FF7A7A' : '#3DDC84'}">${prevPos ? `→ P${prevPos}${passa ? ' · ' + passa : ''}` : ''}</span></div>
-          <div class="col"><span class="l">Tempo de volta</span><span class="f30 fw6">${fmtV(eu.atual_ms)}</span></div>
+          <div class="col"><span class="l">Tempo de volta</span><span class="f30 fw6" data-r="atual">${fmtV(eu.atual_ms)}</span></div>
         </div>
       </div>
       <div class="pd18-22 g14 p col">
@@ -1040,6 +1040,7 @@ function render() {
   if (!d.ligado) {
     ecraEl.insertAdjacentHTML('beforeend', '<div class="abs c-verm2 pd8-16 r8 fw7" style="top:30px;left:50%;transform:translateX(-50%);background:#2A1215;border:1px solid #7A2228">Sem dados do jogo há mais de 3 s — jogo em pausa ou fechado?</div>');
   }
+  aplicarRapido();   // o redesenho usa a fotografia (5x/s); os valores rápidos são mais recentes
 }
 
 // O ecrã é redesenhado 5 vezes por segundo: um "click" precisa que o botão ainda exista quando largas o rato,
@@ -1077,6 +1078,70 @@ function ligar() {
   es.onerror = () => { es.close(); ultimo = ultimo ? { ...ultimo, ligado: false } : null; render(); setTimeout(ligar, 2000); };
 }
 ligar();
+
+// ------------------------------------------------------------------ canal rápido (até 60x/s)
+// Mudança, velocidade, rotações, luzes, tempo da volta e delta chegam a cada pacote do jogo e são escritos
+// diretamente nos elementos marcados com data-r, ao ritmo do ecrã, sem redesenhar a página.
+let rapidoUltimo = null, rapidoPendente = false;
+const rapidoContagem = { mensagens: 0, aplicacoes: 0 };   // para medir (consola: rapidoContagem)
+function ligarRapido() {
+  const es = new EventSource('/rapido');
+  es.onmessage = (ev) => {
+    rapidoUltimo = JSON.parse(ev.data);
+    rapidoUltimo.quando = performance.now();
+    rapidoContagem.mensagens++;
+    if (!rapidoPendente) {
+      rapidoPendente = true;
+      requestAnimationFrame(() => { rapidoPendente = false; aplicarRapido(); });
+    }
+  };
+  es.onerror = () => { es.close(); setTimeout(ligarRapido, 2000); };
+}
+ligarRapido();
+
+function aplicarRapido() {
+  const r = rapidoUltimo;
+  if (!r || r.t === undefined || performance.now() - r.quando > 1500 || !ultimo || !ultimo.pronto) return;   // vazio ou velho: fica a fotografia
+  rapidoContagem.aplicacoes++;
+  const todos = (k) => ecraEl.querySelectorAll(`[data-r="${k}"]`);
+  const texto = (k, t) => todos(k).forEach((el) => { if (el.textContent !== t) el.textContent = t; });
+  if (r.g !== undefined) {
+    texto('mudanca', vlMudanca(r.g));
+    texto('vel', String(r.v));
+    texto('rpm', vlRpm(r.r) + ' rpm');
+    const acesas = vlAcesas(r.l);
+    todos('luzes').forEach((g) => [...g.children].forEach((p, k) => {
+      const vis = k < acesas ? 'visible' : 'hidden';
+      if (p.getAttribute('visibility') !== vis) p.setAttribute('visibility', vis);
+    }));
+  }
+  texto('atual', fmtV(r.t));
+  texto('previsao', fmtV(r.p));
+  if (r.d == null) return;                   // sem referência: o texto da fotografia ("À espera…") fica
+  const bom = r.d <= 0, cor = bom ? '#3DDC84' : '#FF4D4D';
+  todos('delta-pequeno').forEach((el) => { el.textContent = fmtD(r.d); el.style.color = cor; });
+  todos('delta-linha').forEach((el) => { el.textContent = fmtD(r.d) + ' vs melhor'; el.style.color = cor; });
+  todos('delta-quali').forEach((el) => { el.textContent = fmtD(r.d); el.style.color = cor; });
+  todos('delta-quali-barra').forEach((el) => {
+    el.style.width = Math.min(Math.abs(r.d) / 1000, 1) * 50 + '%';
+    el.style.left = bom ? '' : '50%'; el.style.right = bom ? '50%' : ''; el.style.background = cor;
+  });
+  // caixa do delta do volante: número, cores e barra
+  const grande = ecraEl.querySelector('[data-r="delta-grande"]');
+  if (grande) {
+    const cd = vlCoresDelta(r.d), barra = vlBarraDelta(r.d);
+    grande.textContent = fmtD(r.d);
+    grande.style.color = cd.valor; grande.style.textShadow = `0 0 18px ${cd.valor}66`;
+    todos('delta-caixa').forEach((el) => {
+      el.style.background = `linear-gradient(180deg, ${cd.de} 0%, ${cd.ate} 100%)`; el.style.borderColor = cd.borda; el.style.boxShadow = cd.sombra;
+    });
+    todos('delta-rotulo').forEach((el) => { el.style.color = cd.rotulo; });
+    todos('previsao-rotulo').forEach((el) => { el.style.color = cd.rotulo; });
+    todos('delta-trilho').forEach((el) => { el.style.background = cd.trilho; });
+    todos('delta-marca').forEach((el) => { el.style.background = cd.valor; });
+    todos('delta-barra').forEach((el) => { el.style.left = barra.left + '%'; el.style.width = barra.width + '%'; el.style.background = cd.valor; });
+  }
+}
 
 // ------------------------------------------------------------------ voltar ao resumo
 botaoResumo.addEventListener('click', () => { verResumo = true; render(); });

@@ -296,7 +296,7 @@ No F1 25: **Definições → Definições de telemetria**
 | Modo de difusão UDP | Desligado |
 | Endereço IP UDP | `127.0.0.1` se jogas no mesmo PC |
 | Porta UDP | `20777` |
-| Frequência de envio UDP | 20 Hz ou mais (**60 Hz** é o ideal) |
+| Frequência de envio UDP | 20 Hz ou mais (**60 Hz** é o ideal: o conta-rotações e o delta atualizam a esse ritmo) |
 | Formato UDP | **2026** com o 2026 Season Pack, **2025** com os carros de 2025 |
 | A tua telemetria | Pública ou restrita: os dados do teu carro chegam sempre |
 
@@ -356,9 +356,11 @@ python f1dash.py --help
 flowchart LR
     A["🎮 F1 25<br>(PC, PS5 ou Xbox)"] -- "UDP :20777<br>até 60 Hz" --> B["🐍 f1dash.py<br>descodifica pacotes"]
     B --> C["🧠 telemetria/estado.py<br>estado da sessão"]
-    C -- "Server-Sent Events<br>5× por segundo" --> D["🖥️ Monitor<br>localhost:8080"]
+    C -- "Server-Sent Events<br>5× por segundo + canal rápido até 60×" --> D["🖥️ Monitor<br>localhost:8080"]
     C -- "mesma rede Wi-Fi" --> E["📱 Tablet / telemóvel"]
 ```
+
+O ecrã atualiza-se a dois ritmos. Mudança, velocidade, rotações, luzes, tempo da volta e delta vêm por um **canal rápido**, ao ritmo a que o jogo os envia (até 60 vezes por segundo), e mudam no sítio sem redesenhar a página. O resto (tabelas, pneus, estratégia) atualiza 5 vezes por segundo, o que chega para valores que mudam devagar.
 
 Tudo corre na tua máquina com a biblioteca padrão do Python. O estado é calculado uma vez e partilhado com todos os ecrãs ligados, por isso o PC e o tablet abertos ao mesmo tempo não pesam mais. O painel é HTML, CSS e JavaScript simples, sem frameworks.
 
